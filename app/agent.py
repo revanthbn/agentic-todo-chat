@@ -66,22 +66,34 @@ class Agent:
             return self.execute(name, args, None, trace)
 
         target = args["target"].strip()
-        matches = match(target, self.store.list(), self.state.last_referenced_id)
+        todos = self.store.list()
+        matches = match(target, todos, self.state.last_referenced_id)
         if not matches:
             if target.lower() in PRONOUNS:
-                trace.emit("failed", reason="pronoun with no earlier todo", target=target)
+                # "it" points at nothing (e.g. after a restart or a delete): ask instead of failing.
+                candidates = [t for t in todos if not t["completed"]] or todos
+                if candidates:
+                    return self.clarify(name, args, candidates, trace,
+                                        f"Which todo do you mean by \"{target}\"?", reason="unresolved pronoun")
+                trace.emit("failed", reason="pronoun with no todos", target=target)
                 return f"I'm not sure which todo \"{target}\" means. Nothing was changed."
             trace.emit("failed", reason="no match", target=target)
             return f"No todo matches \"{target}\". Nothing was changed."
         if len(matches) > 1:
-            self.state.pending = {"skill": name, "args": args, "candidate_ids": [m["id"] for m in matches]}
-            trace.emit("clarified", target=target, candidates=[m["id"] for m in matches])
-            options = "\n".join(f"  {i}. {m['text']}" for i, m in enumerate(matches, 1))
-            return f"\"{target}\" matches {len(matches)} todos. Which one?\n{options}\nReply with a number."
+            return self.clarify(name, args, matches, trace,
+                                f"\"{target}\" matches {len(matches)} todos. Which one?", reason="ambiguous")
         if dup := self.duplicate(name, args, matches[0], trace):
             return dup
         trace.emit("validated", skill=name, todo_id=matches[0]["id"])
         return self.execute(name, args, matches[0], trace)
+
+    def clarify(self, name: str, args: dict, candidates: list[dict], trace: Trace, question: str, reason: str) -> str:
+        """Ask which todo, change nothing; the next turn may answer via state.pending."""
+        ids = [c["id"] for c in candidates]
+        self.state.pending = {"skill": name, "args": args, "candidate_ids": ids}
+        trace.emit("clarified", reason=reason, target=args["target"], candidates=ids)
+        options = "\n".join(f"  {i}. {c['text']}" for i, c in enumerate(candidates, 1))
+        return f"{question}\n{options}\nReply with a number."
 
     def duplicate(self, name: str, args: dict, todo: dict | None, trace: Trace) -> str | None:
         """Block add/update that would create a second open todo with the same text."""

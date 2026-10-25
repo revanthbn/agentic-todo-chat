@@ -74,8 +74,9 @@ exist even if React overruns.
 
 | Chrome (me): page went white after the first chat message; worked in Cursor's browser | **bug**: reproduced with puppeteer driving the installed Chrome 155: `PAGEERROR: l is not a function`, `#root` emptied. `useEffect(() => ref.scrollIntoView(...))` returned scrollIntoView's value; Chrome 155 returns a Promise, which React then called as the cleanup. Older Chromium returns undefined, which is why Cursor's browser was fine | block-bodied effect. Re-ran the same puppeteer script: 3 turns, no page errors, screenshot correct |
 | Duplicates (my question) | **gap**: "add send the quote" twice gave two identical todos, and a later "delete the quote" offered two identical options | check() now blocks add/update that would duplicate an *open* todo (case/spacing/trailing punctuation ignored), including after a clarification. A completed duplicate is allowed (redo a task). 4 tests; checked in Chrome |
+| Live model, web UI: "change it to…" after a server restart | **failed**: todo persisted in SQLite, but `last_referenced_id` lived in memory and was lost, so "it" resolved to nothing | Unresolved pronoun now asks which todo instead of failing. Root cause (conversation state not persisted) listed as a gap. DEPLOYMENT.md already moves it to a `conversations` table. |
 
-Final: `make test` → 24 passed.
+Final: `make test` → 26 passed.
 
 ### MockLLM: inputs it can't parse
 - `change go to gym to go to pool`: it splits at the first " to ", so the
@@ -102,6 +103,9 @@ stage, shown in the CLI and in a collapsible row under each chat reply; React UI
 **Doesn't / not verified:**
 - Matching has no stemming: "buying milk" doesn't match "buy milk" (seen live).
 - One conversation for the whole server (single user, in memory, lost on restart).
+  After a restart "it"/"that" no longer resolves; check() now asks which todo
+  (open todos listed) instead of failing, but the history and any pending
+  question are still gone.
 - The chat pane was checked through the API and a static screenshot, not by
   clicking through in a browser.
 - Matching is token-subset only, with no fuzzy/typo tolerance ("qoute" → no match).
@@ -173,3 +177,12 @@ destructive actions on weak matches; undo of the last action.
    (a Promise) before changing anything. It was a one-line fix in an effect
    Claude had written in chunk 4. Headless screenshots alone hadn't caught it
    because they never sent a chat message.
+
+8. **"change it to…" after a restart (found by me in the web UI, live model).**
+   I specified the fix: an unresolved pronoun asks instead of failing, reusing
+   `pending`, with `clarified` reason "unresolved pronoun", and fails only when
+   there are no todos, plus a restart-like test. Claude implemented it and
+   handled one case the spec didn't cover: if every todo is completed, it lists
+   all of them, since update/delete still apply. It also shared the numbered-list
+   question with the ambiguity path (`clarify()`), so both emit `clarified` with
+   a `reason`.

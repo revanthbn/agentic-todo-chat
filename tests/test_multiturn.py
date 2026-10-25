@@ -1,3 +1,5 @@
+from app.agent import Agent
+from app.llm import MockLLM
 from tests.conftest import texts
 
 
@@ -24,3 +26,29 @@ def test_that_with_no_history_changes_nothing(agent, store):
     assert "not sure which todo" in reply
     assert trace[-1]["event"] == "failed"
     assert store.list() == []
+
+
+def test_unresolved_pronoun_after_restart_asks_instead_of_failing(store):
+    # Restart-like: the todo persisted in SQLite, but a fresh State has no last_referenced_id.
+    store.add("send the quote")
+    agent = Agent(MockLLM(), store)
+
+    reply, trace = agent.turn("change it to send the revised quote")
+    assert reply == 'Which todo do you mean by "it"?\n  1. send the quote\nReply with a number.'
+    assert trace[-1]["event"] == "clarified"
+    assert trace[-1]["reason"] == "unresolved pronoun"
+    assert texts(store) == ["send the quote"]
+
+    _, trace = agent.turn("1")
+    assert [e["event"] for e in trace] == ["validated", "executed"]
+    assert texts(store) == ["send the revised quote"]
+
+
+def test_unresolved_pronoun_after_delete_lists_open_todos(agent, store):
+    agent.turn("add call mom")
+    agent.turn("add call dentist")
+    agent.turn("mark call mom done")
+    agent.turn("delete call mom")  # last_referenced_id cleared
+    reply, trace = agent.turn("complete it")
+    assert trace[-1]["reason"] == "unresolved pronoun"
+    assert trace[-1]["candidates"] == [2]  # open todos only

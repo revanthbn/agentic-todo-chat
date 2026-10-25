@@ -32,7 +32,8 @@ message ─► route()  model sees skills/catalog.yaml only (names + one line) �
 
 - The tool schemas take the user's words (`target: "the quote"`), never an id,
   so the model never decides ambiguity. `app/validate.py` does.
-- "that" / "it" resolve from `state.last_referenced_id`.
+- "that" / "it" resolve from `state.last_referenced_id`. If that points at nothing
+  (after a restart or a delete), check() asks which todo instead of failing.
 - A clarifying question is remembered in `state.pending`. The next reply can be
   "2", "the second one", or narrowing words ("the revised one"). Anything else
   clears the question and is handled as a new request.
