@@ -43,6 +43,17 @@ def check_args(tool: dict, args: dict) -> list[str]:
     return errors
 
 
+ADD_FILLER = {"add", "create", "new", "a", "an", "the", "task", "todo", "item", "please",
+              "remind", "me", "to", "another", "one"}
+PLACEHOLDER = re.compile(r"\s*(<.*>|\[.*\]|unknown|none|null|n/?a|tbd|todo|task|something|\?+)\s*", re.I)
+
+
+def nothing_to_add(message: str, text: str) -> bool:
+    """The user gave no task ("add") or the model filled in a placeholder ("<UNKNOWN>")."""
+    words = set(re.findall(r"[a-z0-9']+", message.lower())) - ADD_FILLER
+    return not words or bool(PLACEHOLDER.fullmatch(text))
+
+
 def normalize(text: str) -> str:
     return " ".join(text.lower().split()).rstrip(".!?")
 

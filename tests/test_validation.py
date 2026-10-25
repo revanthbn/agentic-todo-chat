@@ -113,3 +113,22 @@ def test_model_sees_at_most_50_todos_open_first(store):
     Agent(stub, store).turn("x")
     assert len(stub.seen_todos) == 50
     assert all(not t["completed"] for t in stub.seen_todos)
+
+
+def test_bare_add_asks_what_to_add(agent, store):
+    reply, trace = agent.turn("add")
+    assert reply == 'What should I add? Try "add send the quote".'
+    assert trace[-1]["reason"] == "nothing to add"
+    assert store.list() == []
+
+
+def test_placeholder_text_from_model_is_rejected(store):
+    agent = Agent(StubLLM("add", {"text": "<UNKNOWN>"}), store)
+    reply, trace = agent.turn("add something for later")
+    assert reply.startswith("What should I add?")
+    assert store.list() == []
+
+
+def test_typo_in_real_task_is_still_added(agent, store):
+    agent.turn("add buy mlik")
+    assert texts(store) == ["buy mlik"]

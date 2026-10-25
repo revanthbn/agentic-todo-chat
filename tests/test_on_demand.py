@@ -31,7 +31,7 @@ def test_greeting_loads_help_only_and_changes_nothing(agent, store, monkeypatch)
 
     for msg in ["hi", "what can you do?", "Hello there"]:
         reply, trace = agent.turn(msg)
-        assert reply.startswith("Hi! I keep your todo list.")
+        assert reply.startswith("Hi! I manage your todo list.")
         assert "buy milk" not in reply  # no list dump
         assert [e["event"] for e in trace] == ["catalog_shown", "skill_loaded", "executed"]
         assert trace[1] == {"event": "skill_loaded", "skill": "help", "tool": None}

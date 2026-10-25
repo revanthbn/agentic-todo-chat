@@ -2,7 +2,8 @@ from app.skills import load_catalog, load_skill
 from app.state import State
 from app.store import Store
 from app.trace import Trace
-from app.validate import PRONOUNS, check_args, find_duplicate, is_no, is_yes, resolve_choice, resolve_target
+from app.validate import (PRONOUNS, check_args, find_duplicate, is_no, is_yes, nothing_to_add, resolve_choice,
+                          resolve_target)
 
 HELP = "I can add, list, update, complete or delete todos. Try \"add send the quote\"."
 MAX_TODOS_FOR_MODEL = 50
@@ -68,14 +69,17 @@ class Agent:
             return f"The model call failed ({type(e).__name__}). Nothing was changed."
 
         # 3. check(): code decides
-        return self.check(skill, args, trace)
+        return self.check(skill, args, trace, message)
 
-    def check(self, skill: dict, args: dict, trace: Trace) -> str:
+    def check(self, skill: dict, args: dict, trace: Trace, message: str) -> str:
         name = skill["name"]
         errors = check_args(skill["tool"], args)
         if errors:
             trace.emit("failed", reason="; ".join(errors))
             return f"I couldn't {name} that: {'; '.join(errors)}. Nothing was changed."
+        if name == "add" and nothing_to_add(message, args["text"]):
+            trace.emit("failed", reason="nothing to add", text=args["text"])
+            return 'What should I add? Try "add send the quote".'
         if "target" not in args:
             if dup := self.duplicate(name, args, None, trace):
                 return dup

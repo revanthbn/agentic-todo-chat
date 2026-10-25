@@ -86,12 +86,15 @@ Claude's own checks caught.
 | Chat header scrolled off-screen in long conversations | Claude (Chrome screenshot) | Message list without `min-h-0` grew past the screen; `scrollIntoView` scrolled the window | `min-h-0` + `overflow-hidden` on the chat column |
 | **"make that call dad" failed to update** | Me (live use) | The model returned `target: "that call"`, though the skill says to use exactly "that". The old matcher treated "that" as a word → no match | Pronouns inside a target are references: "that call" → the last todo if "call" fits it, else match "call". Tests with a stub model |
 | **"hi" / "what can you do?" dumped the whole todo list** | Me (live use) | The router is forced to pick one of five skills; list was the closest. The mock also sent every "what…" question to list | A `help` catalog entry and tool-less skill file with a welcome message. Live check: "hi", "what can you do?", "how does this work" → help; "help me remember to call mom" → add; "what's left" → list |
+| **"add" alone → Added "<UNKNOWN>"** | Me (live use) | The model filled the required `text` with a placeholder; it passed the non-empty check | Code guard, not a prompt: if the message has nothing beyond the command word, or the text is a placeholder (`<…>`, "unknown", "tbd"…), reply "What should I add?" and change nothing. Live: still proposes `<UNKNOWN>`, now caught |
+| **"i already bought milk anfd eggs" → no match** | Me (live use) | Skill instructions still had v1 wording ("copy the user's words, do not guess"), contradicting `candidate_ids`; the model put the whole sentence in `target` and proposed nothing | Rewrote update/complete/delete instructions: `target` = shortest phrase naming the todo; `candidate_ids` = every plausible todo, including paraphrases, tenses, typos. Stub test + live 2×: target "milk anfd eggs", candidate → completed |
 | "actually make that call dad" **created a new todo** instead of renaming | Claude (live run) | The router sees only the catalog; update's one-liner didn't cover correction phrasing | Catalog descriptions sharpened. Re-ran live 3×: correct each time |
 
 **Key lesson: prompts are guidance, not guarantees.** The skill told the model to
 use exactly "that", and it returned "that call". In a later run it put the whole
 sentence ("make that call call grandma") in `target`. Code has to stay correct
-when the model doesn't comply. That's why check(), not the model, decides
+when the model doesn't comply. Asked to fill a required field with nothing to go on,
+it wrote "<UNKNOWN>" rather than refusing; a code guard catches that, not a prompt. That's why check(), not the model, decides
 matches, and why the model's candidates can only widen the set.
 
 **Found live, not fixed (bulk actions aren't supported):**
@@ -101,7 +104,7 @@ matches, and why the model's candidates can only widen the set.
 | "mark shopping related tasks as completed" | Me | No match | The model proposes milk + tofu → "Which one?" Semantic part works; it completes one at a time, not both |
 | "delete all of them" | Me | Safe refusal, nothing deleted | The model proposes every todo → "Which one?" Still safe, but the wrong question for "all" |
 
-Test suite: `make test` → 43 passed (MockLLM/stubs, no network). The live model
+Test suite: `make test` → 47 passed (MockLLM/stubs, no network). The live model
 was also run on the README transcript and the ambiguity flows, with the same
 traces as the mock. It copied "the quote" verbatim in that run, but not always:
 see "that call" above.
@@ -118,6 +121,11 @@ in the CLI and under each chat reply; live model and mock; one-process web demo.
 - "thanks!" also gets the welcome text (the live router sends small talk to help).
   MockLLM routes anything starting with "help" to help, so "help me remember to
   call mom" goes wrong in mock mode only.
+- **Open gap:** "exact text wins" trusts the model's `target`. In a live run
+  "i rang my mother" came back as target "call mom" (the todo's exact text, not my
+  words), so it executed directly. A model could skip a needed "which one?" this
+  way. Fix: only let exact text win when it appears in the message; otherwise
+  treat it as a model-only match.
 - No bulk actions: "complete all shopping tasks" / "delete all of them" get a
   "which one?" question instead of acting on several todos.
 - Semantic matches come only from the live model; MockLLM is lexical, so the

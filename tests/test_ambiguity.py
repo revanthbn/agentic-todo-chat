@@ -128,3 +128,12 @@ def test_complete_supported_only_by_model_executes(store):
     (milk,) = _seed(store, "buy milk")
     _, trace = _stub(store, "complete", {"target": "the groceries", "candidate_ids": [milk]}).turn("x")
     assert trace[-1] == {"event": "executed", "action": "complete", "todo_id": milk}
+
+
+def test_paraphrase_tense_and_typo_resolved_by_model_candidate(store):
+    eggs, _ = _seed(store, "buy milk and eggs", "call mom")
+    agent = _stub(store, "complete", {"target": "milk anfd eggs", "candidate_ids": [eggs]})
+    reply, trace = agent.turn("i already bought milk anfd eggs")
+    assert reply == 'Marked "buy milk and eggs" as done.'
+    assert next(e for e in trace if e["event"] == "validated")["lexical"] == []  # only the model saw it
+    assert [t["completed"] for t in store.list()] == [True, False]
