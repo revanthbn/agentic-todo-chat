@@ -24,24 +24,21 @@ Cut order if behind: React polish, then React. The CLI alone meets the brief.
   (mcp 500 at 2:39, Chrome white page at 2:45)
 - **2:45–3:01** found by using it: duplicates, "it" after a restart → persisted
   conversation state
-- **3:01–3:21** "what's left/done" UI filter (3:09); model-proposed candidates +
-  semantic matching (3:18); live findings and this write-up
+- **3:01–3:22** "what's left/done" UI filter (3:09); model-proposed candidates +
+  semantic matching (3:18); live findings write-up
+- **3:22–3:42** making it smarter from live use: help skill for greetings (3:26),
+  skill prompts rewritten + empty-add guard (3:33), model's target trusted only if
+  the user said it (3:40); DEPLOYMENT.md for Vercel + Fly + Supabase (3:41)
 
 The core was done in about 15 minutes. Most of the time went into using it live
 and fixing what broke.
 
 ## Decisions
 
-- **The model proposes candidates; code decides.** act() sees the skill, the last
-  6 messages and up to 50 todos (open first), and returns `target` plus
-  `candidate_ids`. check() drops unknown ids and unions them with lexical matches
-  (light stemmer). 0 → no match, 1 → execute, 2+ → clarify, and a delete matched only by
-  the model asks for confirmation. Pronouns still resolve from state; exact text wins.
-  *This reverses my first design* (act() saw no todos at all): purely lexical
-  matching was too weak in live use ("buying milk" ≠ "buy milk", no "the shopping"
-  → milk/tofu). The union rule keeps the original guarantee: the model can add
-  candidates but can't narrow below what the words match. And the model's `target`
-  is trusted only if the user actually said it.
+- **The model proposes candidates; code decides.** The model suggests which todos
+  might be meant; code makes the call and asks when it's unclear. This reverses my
+  first design, where the model saw no todos at all. See "Making matching smarter"
+  below for how it got there and the exact rules.
 - **Two model calls per turn (route, then act).** This doubles latency and cost,
   but it makes on-demand loading real: the model sees the catalog first, then
   exactly one skill file. This is the main tradeoff.
@@ -70,6 +67,34 @@ and fixing what broke.
   Tailwind, managed with uv. `cn()` and the shadcn tokens are hand-written,
   skipping `shadcn init` (fragile on the Vite 8 / TS 6 scaffold).
 
+## Making matching smarter
+
+The first version was strict and purely lexical: the model copied the user's
+words, and code matched them word for word. It was safe but too literal in live use.
+Each step below came from something that failed when I used it. The invariant
+never changed: **the model proposes, code decides, and nothing changes without
+validation.**
+
+| # | Trigger (found by) | Change | Rule code enforces |
+|---|---|---|---|
+| 1 | "make that call dad" → no match: the model sent `target: "that call"` (me, live) | Pronouns inside a target are references | "that call" = the last todo if "call" fits it; otherwise match "call" |
+| 2 | "buying milk" ≠ "buy milk"; "the shopping" found nothing (me, live) | act() now sees the last 6 messages + up to 50 todos and returns `candidate_ids`; lexical matching gets a light stemmer (ing/ed/s) | ids not in the store are dropped. Candidates = model ∪ lexical, so the model can **widen but never narrow**. 0 → no match, 1 → execute, 2+ → "which one?". A delete matched only by the model asks yes/no |
+| 3 | "hi" / "what can you do?" dumped the list (me, live) | `help` skill: tool-less skill file, its text is the reply | No act() call, no todo access |
+| 4 | "add" → saved "<UNKNOWN>" (me, live) | Empty-add guard | Nothing beyond the command word, or placeholder text → "What should I add?" |
+| 5 | "i already bought milk anfd eggs" → no match (me, live) | Skill prompts rewritten. They still said "copy the user's words, do not guess", which contradicted step 2. `target` = shortest phrase naming the todo; `candidate_ids` = every plausible todo, including paraphrases, tenses and typos | Unchanged: code still decides |
+| 6 | The model could skip "which one?" by rewriting the target into one todo's exact text (Claude, live; fix specified by me) | The model's `target` counts only if the user said it | Otherwise the same rules run on the user's own words, so "that" still resolves from state; a single model-only match asks yes/no |
+| 7 | "actually make that call dad" created a new todo (Claude, live) | Catalog descriptions sharpened for correction phrasing | Routing only; re-ran live 3× |
+
+**Live results after all seven:**
+- "complete the shopping" → milk / tofu, "which one?"
+- "i already bought milk anfd eggs" → completed "buy milk and eggs"
+- "cancel the dentst thing" → "Delete it? (yes/no)"
+- "i rang my mother" → "Mark it done? (yes/no)"
+- "complete call" with the model's target "call mom" → still "which one?"
+- "actually make that water the garden" → resolved "that" from state, no extra question
+
+Every rule has a stub-model test, because MockLLM only does lexical matching.
+
 ## Bugs found and how we fixed them
 
 Chronological. "Found by" separates what I found by using the app from what
@@ -86,18 +111,20 @@ Claude's own checks caught.
 | **"change it to…" after a server restart** failed | Me (live use) | Todos persisted, but `last_referenced_id` lived in memory | Conversation state persisted in SQLite (`conversation_state` + `messages`), loaded/saved every turn. An unresolved pronoun asks instead of failing. Tests: a new Agent on the same DB resolves "that" and answers the previous Agent's question |
 | Chat header scrolled off-screen in long conversations | Claude (Chrome screenshot) | Message list without `min-h-0` grew past the screen; `scrollIntoView` scrolled the window | `min-h-0` + `overflow-hidden` on the chat column |
 | **"make that call dad" failed to update** | Me (live use) | The model returned `target: "that call"`, though the skill says to use exactly "that". The old matcher treated "that" as a word → no match | Pronouns inside a target are references: "that call" → the last todo if "call" fits it, else match "call". Tests with a stub model |
+| "actually make that call dad" **created a new todo** instead of renaming | Claude (live run) | The router sees only the catalog; update's one-liner didn't cover correction phrasing | Catalog descriptions sharpened. Re-ran live 3×: correct each time |
 | **"hi" / "what can you do?" dumped the whole todo list** | Me (live use) | The router is forced to pick one of five skills; list was the closest. The mock also sent every "what…" question to list | A `help` catalog entry and tool-less skill file with a welcome message. Live check: "hi", "what can you do?", "how does this work" → help; "help me remember to call mom" → add; "what's left" → list |
 | **"add" alone → Added "<UNKNOWN>"** | Me (live use) | The model filled the required `text` with a placeholder; it passed the non-empty check | Code guard, not a prompt: if the message has nothing beyond the command word, or the text is a placeholder (`<…>`, "unknown", "tbd"…), reply "What should I add?" and change nothing. Live: still proposes `<UNKNOWN>`, now caught |
 | **"i already bought milk anfd eggs" → no match** | Me (live use) | Skill instructions still had v1 wording ("copy the user's words, do not guess"), contradicting `candidate_ids`; the model put the whole sentence in `target` and proposed nothing | Rewrote update/complete/delete instructions: `target` = shortest phrase naming the todo; `candidate_ids` = every plausible todo, including paraphrases, tenses, typos. Stub test + live 2×: target "milk anfd eggs", candidate → completed |
 | **The model could skip "which one?"** by rewriting the target into one todo's exact text ("i rang my mother" → target "call mom" → executed directly) | Claude (live run), fix specified by me | "Exact text wins" trusted the model's `target` | A target only counts if the user said it. Otherwise the same rules run on the user's own words (command words removed), and the rewritten target only adds model candidates; a single model-only match confirms ("Mark it done? yes/no"). Tests: "complete call" + model target "call mom" → clarifies; "complete call mom" → executes. Live: "make that water the garden" (model rewrote "that") still resolves "that" from state |
-| "actually make that call dad" **created a new todo** instead of renaming | Claude (live run) | The router sees only the catalog; update's one-liner didn't cover correction phrasing | Catalog descriptions sharpened. Re-ran live 3×: correct each time |
 
 **Key lesson: prompts are guidance, not guarantees.** The skill told the model to
 use exactly "that", and it returned "that call". In a later run it put the whole
 sentence ("make that call call grandma") in `target`. Code has to stay correct
-when the model doesn't comply. Asked to fill a required field with nothing to go on,
-it wrote "<UNKNOWN>" rather than refusing; a code guard catches that, not a prompt. That's why check(), not the model, decides
-matches, and why the model's candidates can only widen the set.
+when the model doesn't comply. Asked to fill a required field with nothing to go
+on, it wrote "<UNKNOWN>" rather than refusing, and it sometimes rewrites "that" into
+a todo's text. Code guards catch these, not prompts. That's why check(), not the
+model, decides matches, why the model's candidates can only widen the set, and why
+its `target` counts only if the user said it.
 
 **Found live, not fixed (bulk actions aren't supported):**
 
@@ -127,8 +154,8 @@ in the CLI and under each chat reply; live model and mock; one-process web demo.
   "which one?" question instead of acting on several todos.
 - Semantic matches come only from the live model; MockLLM is lexical, so the
   semantic paths are tested with a stub. No typo tolerance in the lexical matcher.
-- update/complete matched only by the model execute without confirmation (only
-  delete asks).
+- update/complete matched only by the model execute without confirmation when
+  the target is the user's own phrase (delete always asks; a rewritten target asks).
 - The model sees at most 50 todos; older ones can still be matched by their words.
 - No undo.
 - MockLLM misparses some input. The worst case is "change go to gym to go to
@@ -191,3 +218,11 @@ now model-dependent); retrieval instead of the 50-todo cap for large lists; undo
    milk/tofu clarified, "delete the teeth thing" → confirm, "I finished buying
    milk" → matched. That same live run exposed a routing bug ("make that call
    dad" → add), fixed in the catalog wording and re-checked 3×.
+
+9. **"Exact text only wins if it appears in the user's message."** Claude found the
+   gap in a live run ("i rang my mother" → the model wrote target "call mom" → it
+   executed directly, skipping the check) and proposed the fix; I approved it and
+   specified the tests. Claude generalised it so lexical matching uses the user's
+   own words, and a live re-run showed the first version added a needless
+   confirmation to "make that water the garden". It then routed the user's own
+   words back through the pronoun rules, and the live re-check passed.
