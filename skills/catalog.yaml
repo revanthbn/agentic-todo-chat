@@ -1,0 +1,12 @@
+# Shown to the model in route(). Names + one line only; full instructions load on demand.
+skills:
+  - name: add
+    description: Create a new todo.
+  - name: list
+    description: Show the current todos, optionally only open or only done ones.
+  - name: update
+    description: Change the text of an existing todo.
+  - name: complete
+    description: Mark an existing todo as done.
+  - name: delete
+    description: Remove an existing todo.
