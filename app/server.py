@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -11,6 +12,7 @@ from app.store import Store
 
 DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 
+load_dotenv()
 llm = get_llm()
 store = Store(os.environ.get("TODO_DB", "todos.db"))
 agent = Agent(llm, store)  # one conversation, held in the backend

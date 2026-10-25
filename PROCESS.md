@@ -36,6 +36,10 @@ exist even if React overruns.
   add/toggle/edit/delete; those would bypass check() and the trace, so they are
   stripped. Chat is the only write path.
 - Single conversation / single user, in backend memory. Known gap.
+- **uv + pyproject.toml instead of pip + requirements.txt** (my request after the
+  first pass): one lockfile, `uv run` in the Makefile, no manual venv. `.env.example`
+  is the template for `ANTHROPIC_API_KEY`; `.env` is loaded by the CLI and server
+  entry points only, so tests never see a real key.
 
 - **Skipped `shadcn init`.** The Vite scaffold came up on TypeScript 6 and Vite 8;
   path-alias setup is where shadcn init usually stalls. We only needed `cn()` and

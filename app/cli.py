@@ -1,5 +1,7 @@
 import os
 
+from dotenv import load_dotenv
+
 from app.agent import Agent
 from app.llm import get_llm
 from app.store import Store
@@ -7,6 +9,7 @@ from app.trace import format_event
 
 
 def main() -> None:
+    load_dotenv()
     llm = get_llm()
     print(f"MODE: {llm.mode}" + (f" ({llm.model})" if llm.mode == "live" else " (no ANTHROPIC_API_KEY, using MockLLM)"))
     agent = Agent(llm, Store(os.environ.get("TODO_DB", "todos.db")))

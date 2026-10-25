@@ -6,14 +6,16 @@ chat is the only way to change the list.
 ## Run
 
 ```bash
-make demo      # installs Python + web deps, builds web, serves http://localhost:8000
-make cli       # terminal chat, Python only, prints the trace under every reply
-make test      # pytest (MockLLM, no network)
+cp .env.example .env   # optional: add ANTHROPIC_API_KEY for the live model
+make demo              # uv sync + npm ci + build web, serves http://localhost:8000
+make cli               # terminal chat, Python only, prints the trace under every reply
+make test              # pytest (MockLLM, no network)
 ```
 
-Needs Python 3.11+ and Node 20+.
+Needs [uv](https://docs.astral.sh/uv/) (Python 3.11+, deps pinned in `uv.lock`) and Node 20+.
 
-**Live model vs. substitute.** If `ANTHROPIC_API_KEY` is set, the app calls
+**Live model vs. substitute.** If `ANTHROPIC_API_KEY` is set (in `.env` or the
+environment), the app calls
 `anthropic/claude-haiku-5-5` through the LiteLLM Python SDK (override with
 `LLM_MODEL`). Otherwise it uses `MockLLM`, a small keyword/regex stand-in with
 the same interface. The active mode is printed at startup and shown in the chat
