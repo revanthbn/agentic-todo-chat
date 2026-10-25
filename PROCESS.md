@@ -17,6 +17,19 @@ anything wrong in my structure. The order puts the graded logic first and the UI
 
 Cut order if behind: React polish, then React. The CLI alone meets the brief.
 
+## Timeline (IST, from git history)
+
+- **2:15** start · **2:27** core loop + tests committed · **2:29** server + UI · **2:31** docs
+- **2:33–2:45** uv + `.env`, first live-model run, two live bugs fixed
+  (mcp 500 at 2:39, Chrome white page at 2:45)
+- **2:45–3:01** found by using it: duplicates, "it" after a restart → persisted
+  conversation state
+- **3:01–3:21** "what's left/done" UI filter (3:09); model-proposed candidates +
+  semantic matching (3:18); live findings and this write-up
+
+The core was done in about 15 minutes. Most of the time went into using it live
+and fixing what broke.
+
 ## Decisions
 
 - **The model proposes candidates; code decides.** act() sees the skill, the last
@@ -53,20 +66,41 @@ Cut order if behind: React polish, then React. The CLI alone meets the brief.
   Tailwind, managed with uv. `cn()` and the shadcn tokens are hand-written,
   skipping `shadcn init` (fragile on the Vite 8 / TS 6 scaffold).
 
-## Bugs I found and how we fixed them
+## Bugs found and how we fixed them
 
-| Bug | Cause | Fix |
-|---|---|---|
-| Live model: every chat message returned **HTTP 500** (`No module named 'mcp'`) | LiteLLM 1.106.3 imports its MCP handler whenever `tools` are passed; `mcp` only ships in the `litellm[mcp]` extra. Our LiteLLM test patched `completion()` out, so the suite stayed green | Depend on `litellm[mcp]`. Added a regression test through the real `litellm.completion` (fails without `mcp`, passes with it). Model errors now return "The model call failed… Nothing was changed." instead of a 500 |
-| **Page went white in Chrome** after the first message (fine in Cursor's browser) | Chrome 155 returns a Promise from `scrollIntoView`. The chat's scroll effect returned it, and React called it as a cleanup function → `l is not a function` | One-line fix (block-bodied effect). Reproduced and re-verified by scripting the installed Chrome with puppeteer |
-| **Duplicate todos**: "add send the quote" twice gave two identical rows, and "delete the quote" then offered two identical choices | No duplicate rule | check() blocks add/update that would duplicate an open todo (ignoring case, spacing and trailing punctuation), including after a clarification. 4 tests |
-| (Found while checking the filter in Chrome) **chat header scrolled off-screen** once the conversation got long | The message list was a flex child without `min-h-0`, so it grew past the screen and `scrollIntoView` scrolled the whole window | `min-h-0` + `overflow-hidden` on the chat column; only the messages scroll now |
-| (Found in the live run of the change above) **"actually make that call dad" created a new todo** instead of renaming | The router sees only the catalog, and update's one-liner ("Change the text of an existing todo") didn't cover correction phrasing, so the live model picked add | Catalog descriptions sharpened (update: "including corrections like 'make that X'…"; add: "not for rewording"). Re-ran live 3×: correct each time |
-| **"change it to…" after a server restart** failed | Todos persist in SQLite, but `last_referenced_id` lived in memory and was lost, so "it" resolved to nothing | Root cause fixed: conversation state is persisted in SQLite (`conversation_state` + `messages`), loaded at the start of each turn and saved at the end, so "it" and pending questions survive a restart. Also, an unresolved pronoun (e.g. one pointing at a deleted todo) now asks which todo instead of failing. Tests: a new Agent on the same DB resolves "that" and answers the previous Agent's question |
+Chronological. "Found by" separates what I found by using the app from what
+Claude's own checks caught.
+
+| Bug | Found by | Cause | Fix |
+|---|---|---|---|
+| A test asserted on the wrong trace event, and ended in `or True` | Claude (first test run) | AI-written test; it would also have passed vacuously | Look up the event by name |
+| Todo rows collapsed to zero height (footer count was right) | Claude (headless screenshot) | framer-motion `height: 0 → auto` enter animation | Opacity/slide animation instead |
+| Checkboxes gray, not black like the reference | Claude (headless screenshot) | Unlayered `* { border-color }` beat Tailwind v4's layered utilities | Base styles moved into `@layer base` |
+| Live model: every chat message returned **HTTP 500** (`No module named 'mcp'`) | Me (live use, browser) | LiteLLM 1.106.3 imports its MCP handler whenever `tools` are passed; `mcp` only ships in the `litellm[mcp]` extra. Our LiteLLM test patched `completion()` out, so the suite stayed green | Depend on `litellm[mcp]`; regression test through the real `litellm.completion` (fails without `mcp`). Model errors now return a plain "Nothing was changed." message, not a 500 |
+| **Page went white in Chrome** after the first message (fine in Cursor's browser) | Me (live use, Chrome) | Chrome 155 returns a Promise from `scrollIntoView`; the chat's scroll effect returned it and React called it as a cleanup → `l is not a function` | Block-bodied effect. Reproduced and re-verified by scripting the installed Chrome (puppeteer) |
+| **Duplicate todos**: the same task twice, then "delete the quote" offered two identical choices | Me (using it) | No duplicate rule | check() blocks add/update that would duplicate an open todo. 4 tests |
+| **"change it to…" after a server restart** failed | Me (live use) | Todos persisted, but `last_referenced_id` lived in memory | Conversation state persisted in SQLite (`conversation_state` + `messages`), loaded/saved every turn. An unresolved pronoun asks instead of failing. Tests: a new Agent on the same DB resolves "that" and answers the previous Agent's question |
+| Chat header scrolled off-screen in long conversations | Claude (Chrome screenshot) | Message list without `min-h-0` grew past the screen; `scrollIntoView` scrolled the window | `min-h-0` + `overflow-hidden` on the chat column |
+| **"make that call dad" failed to update** | Me (live use) | The model returned `target: "that call"`, though the skill says to use exactly "that". The old matcher treated "that" as a word → no match | Pronouns inside a target are references: "that call" → the last todo if "call" fits it, else match "call". Tests with a stub model |
+| "actually make that call dad" **created a new todo** instead of renaming | Claude (live run) | The router sees only the catalog; update's one-liner didn't cover correction phrasing | Catalog descriptions sharpened. Re-ran live 3×: correct each time |
+
+**Key lesson: prompts are guidance, not guarantees.** The skill told the model to
+use exactly "that", and it returned "that call". In a later run it put the whole
+sentence ("make that call call grandma") in `target`. Code has to stay correct
+when the model doesn't comply. That's why check(), not the model, decides
+matches, and why the model's candidates can only widen the set.
+
+**Found live, not fixed (bulk actions aren't supported):**
+
+| Input | Found by | Before candidate_ids | Now (re-run live) |
+|---|---|---|---|
+| "mark shopping related tasks as completed" | Me | No match | The model proposes milk + tofu → "Which one?" Semantic part works; it completes one at a time, not both |
+| "delete all of them" | Me | Safe refusal, nothing deleted | The model proposes every todo → "Which one?" Still safe, but the wrong question for "all" |
 
 Test suite: `make test` → 41 passed (MockLLM/stubs, no network). The live model
-was also run on the README transcript and the ambiguity flows: same traces as
-the mock, and it copied "the quote" verbatim rather than picking a todo.
+was also run on the README transcript and the ambiguity flows, with the same
+traces as the mock. It copied "the quote" verbatim in that run, but not always:
+see "that call" above.
 
 ## What works / what doesn't / next
 
@@ -77,6 +111,8 @@ in the CLI and under each chat reply; live model and mock; one-process web demo.
 
 **Doesn't:**
 - One conversation (id=1) shared by everyone who opens the app.
+- No bulk actions: "complete all shopping tasks" / "delete all of them" get a
+  "which one?" question instead of acting on several todos.
 - Semantic matches come only from the live model; MockLLM is lexical, so the
   semantic paths are tested with a stub. No typo tolerance in the lexical matcher.
 - update/complete matched only by the model execute without confirmation (only
@@ -88,7 +124,7 @@ in the CLI and under each chat reply; live model and mock; one-process web demo.
   "add change the oil", "I finished the gym", "whats left". The live model
   handles all of these.
 
-**Next:** per-user `conversation_id` (with auth); an opt-in eval suite that
+**Next:** bulk actions (one confirm step listing every match); per-user `conversation_id` (with auth); an opt-in eval suite that
 runs the test scenarios against the real model (routing and candidate_ids are
 now model-dependent); retrieval instead of the 50-todo cap for large lists; undo.
 
@@ -102,8 +138,8 @@ now model-dependent); retrieval instead of the 50-todo cap for large lists; undo
    question, that a scripted mock would break free-form demo input, and that
    tool schemas must take text targets, not ids.
 
-2. **My corrections to that plan.** "Move the tests into chunk 3… if React dies,
-   your tests already exist. Pending clarification needs a way out… Use the
+2. **My corrections to that plan (worked out with Claude in a separate chat, see top).**
+   "Move the tests into chunk 3… if React dies, your tests already exist. Pending clarification needs a way out… Use the
    brief's own example for ambiguity too… Cap the MockLLM… 15 minutes max."
    All of these went in before any code. The escape-hatch test and the
    "send the quote / send the revised quote" case come straight from this.
