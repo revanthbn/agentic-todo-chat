@@ -2,7 +2,7 @@ from app.skills import load_catalog, load_skill
 from app.state import State
 from app.store import Store
 from app.trace import Trace
-from app.validate import PRONOUNS, check_args, match, resolve_choice
+from app.validate import PRONOUNS, check_args, find_duplicate, match, resolve_choice
 
 HELP = "I can add, list, update, complete or delete todos. Try \"add send the quote\"."
 
@@ -25,6 +25,8 @@ class Agent:
             candidates = [t for t in self.store.list() if t["id"] in pending["candidate_ids"]]
             choice = resolve_choice(message, candidates)
             if choice:
+                if dup := self.duplicate(pending["skill"], pending["args"], choice, trace):
+                    return dup
                 trace.emit("validated", skill=pending["skill"], todo_id=choice["id"], via="clarification")
                 return self.execute(pending["skill"], pending["args"], choice, trace)
             # Not an answer to the question: drop it and handle the message normally.
@@ -58,6 +60,8 @@ class Agent:
             trace.emit("failed", reason="; ".join(errors))
             return f"I couldn't {name} that: {'; '.join(errors)}. Nothing was changed."
         if "target" not in args:
+            if dup := self.duplicate(name, args, None, trace):
+                return dup
             trace.emit("validated", skill=name)
             return self.execute(name, args, None, trace)
 
@@ -74,8 +78,21 @@ class Agent:
             trace.emit("clarified", target=target, candidates=[m["id"] for m in matches])
             options = "\n".join(f"  {i}. {m['text']}" for i, m in enumerate(matches, 1))
             return f"\"{target}\" matches {len(matches)} todos. Which one?\n{options}\nReply with a number."
+        if dup := self.duplicate(name, args, matches[0], trace):
+            return dup
         trace.emit("validated", skill=name, todo_id=matches[0]["id"])
         return self.execute(name, args, matches[0], trace)
+
+    def duplicate(self, name: str, args: dict, todo: dict | None, trace: Trace) -> str | None:
+        """Block add/update that would create a second open todo with the same text."""
+        if name not in ("add", "update"):
+            return None
+        existing = find_duplicate(args["text"], self.store.list(), exclude_id=todo["id"] if todo else None)
+        if existing is None:
+            return None
+        self.state.last_referenced_id = existing["id"]
+        trace.emit("failed", reason="duplicate", todo_id=existing["id"])
+        return f"\"{existing['text']}\" is already on your list. Nothing was changed."
 
     def execute(self, name: str, args: dict, todo: dict | None, trace: Trace) -> str:
         if name == "add":

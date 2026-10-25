@@ -36,6 +36,9 @@ exist even if React overruns.
   add/toggle/edit/delete; those would bypass check() and the trace, so they are
   stripped. Chat is the only write path.
 - Single conversation / single user, in backend memory. Known gap.
+- **Duplicates are a check() rule, not a model decision.** Blocked only against
+  *open* todos: re-adding something you already finished is a legitimate redo.
+  A blocked duplicate sets "that" to the existing todo, so "mark that done" works next.
 - **uv + pyproject.toml instead of pip + requirements.txt** (my request after the
   first pass): one lockfile, `uv run` in the Makefile, no manual venv. `.env.example`
   is the template for `ANTHROPIC_API_KEY`; `.env` is loaded by the CLI and server
@@ -69,7 +72,10 @@ exist even if React overruns.
 | Live model, README transcript + ambiguity + mock-gap inputs (`make cli`, claude-haiku-5-5) | **passed**: same traces as MockLLM for the brief example and both ambiguity scenarios. The model copied "the quote" / "call" verbatim instead of picking a todo, so code still decided. It parsed "change go to gym to go to pool" correctly (the mock didn't) | – |
 | Same run: "I finished buying milk" | **miss**: the model proposed target "buying milk", which doesn't token-match "buy milk". Nothing changed, plain message | not fixed; listed under gaps |
 
-Final: `make test` → 20 passed.
+| Chrome (me): page went white after the first chat message; worked in Cursor's browser | **bug**: reproduced with puppeteer driving the installed Chrome 155: `PAGEERROR: l is not a function`, `#root` emptied. `useEffect(() => ref.scrollIntoView(...))` returned scrollIntoView's value; Chrome 155 returns a Promise, which React then called as the cleanup. Older Chromium returns undefined, which is why Cursor's browser was fine | block-bodied effect. Re-ran the same puppeteer script: 3 turns, no page errors, screenshot correct |
+| Duplicates (my question) | **gap**: "add send the quote" twice gave two identical todos, and a later "delete the quote" offered two identical options | check() now blocks add/update that would duplicate an *open* todo (case/spacing/trailing punctuation ignored), including after a clarification. A completed duplicate is allowed (redo a task). 4 tests; checked in Chrome |
+
+Final: `make test` → 24 passed.
 
 ### MockLLM: inputs it can't parse
 - `change go to gym to go to pool`: it splits at the first " to ", so the
@@ -159,3 +165,11 @@ destructive actions on weak matches; undo of the last action.
    that the 500 also broke the "failures give a plain message" rule. Then it ran
    the README transcript live: everything passed except one new miss
    ("buying milk" vs "buy milk").
+
+7. **"The page goes white in Chrome; it worked in Cursor's browser."** Claude
+   reproduced it by scripting the real Chrome (puppeteer-core) rather than
+   guessing, read `l is not a function` from the page error, and confirmed the
+   hypothesis by evaluating `scrollIntoView()`'s return value in that Chrome
+   (a Promise) before changing anything. It was a one-line fix in an effect
+   Claude had written in chunk 4. Headless screenshots alone hadn't caught it
+   because they never sent a chat message.

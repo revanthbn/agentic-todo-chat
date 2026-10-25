@@ -61,3 +61,37 @@ def test_model_error_is_reported_and_changes_nothing(store):
     assert reply == "The model call failed (ConnectionError). Nothing was changed."
     assert trace[-1]["event"] == "failed"
     assert texts(store) == ["send the quote"]
+
+
+def test_duplicate_add_is_blocked(agent, store):
+    agent.turn("add send the quote")
+    reply, trace = agent.turn("add  Send the quote.")
+    assert reply == '"send the quote" is already on your list. Nothing was changed.'
+    assert trace[-1] == {"event": "failed", "reason": "duplicate", "todo_id": 1}
+    assert texts(store) == ["send the quote"]
+
+
+def test_duplicate_of_completed_todo_is_allowed(agent, store):
+    agent.turn("add send the quote")
+    agent.turn("mark that done")
+    agent.turn("add send the quote")
+    assert [(t["text"], t["completed"]) for t in store.list()] == [
+        ("send the quote", True), ("send the quote", False)]
+
+
+def test_update_into_duplicate_is_blocked(agent, store):
+    agent.turn("add call mom")
+    agent.turn("add call dentist")
+    reply, trace = agent.turn("change call dentist to call mom")
+    assert "already on your list" in reply
+    assert texts(store) == ["call mom", "call dentist"]
+
+
+def test_duplicate_checked_after_clarification(agent, store):
+    agent.turn("add send the quote")
+    agent.turn("add send the revised quote")
+    agent.turn("change the quote to send the revised quote")
+    reply, trace = agent.turn("1")
+    assert "already on your list" in reply
+    assert trace[-1]["reason"] == "duplicate"
+    assert texts(store) == ["send the quote", "send the revised quote"]

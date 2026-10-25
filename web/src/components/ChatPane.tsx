@@ -48,7 +48,11 @@ export function ChatPane({ mode, onTurn }: ChatPaneProps) {
   const [busy, setBusy] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), [messages, busy])
+  // Block body on purpose: newer Chrome returns a Promise from scrollIntoView,
+  // and React would call a returned value as the effect's cleanup.
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages, busy])
 
   const send = async () => {
     const text = input.trim()

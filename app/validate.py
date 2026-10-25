@@ -31,6 +31,17 @@ def check_args(tool: dict, args: dict) -> list[str]:
     return errors
 
 
+def normalize(text: str) -> str:
+    return " ".join(text.lower().split()).rstrip(".!?")
+
+
+def find_duplicate(text: str, todos: list[dict], exclude_id: int | None = None) -> dict | None:
+    """An open todo with the same text (case/spacing/trailing punctuation ignored)."""
+    t = normalize(text)
+    return next((x for x in todos if not x["completed"] and x["id"] != exclude_id
+                 and normalize(x["text"]) == t), None)
+
+
 def match(target: str, todos: list[dict], last_id: int | None) -> list[dict]:
     """Resolve the user's words to todos. Caller handles 0 / 1 / many."""
     t = target.strip().lower()
