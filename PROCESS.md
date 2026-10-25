@@ -51,6 +51,9 @@ and fixing what broke.
   row (last_referenced_id, pending) plus an append-only `messages` table. It's
   loaded and saved every turn, so nothing lives only in process memory. Single
   conversation (id=1); per-user `conversation_id` is the production change.
+- **Greetings get a help skill, not a list.** The router must pick a skill, so
+  "hi" used to land on list. `help` is a sixth catalog entry whose skill file has
+  no tool: its text is the reply, with no act() call and no todo access.
 - **Duplicates are a check() rule:** a todo can't duplicate an *open* one.
   Re-adding a finished task is allowed.
 - **MockLLM is a small keyword parser, not scripted replies**, so the no-key demo
@@ -82,6 +85,7 @@ Claude's own checks caught.
 | **"change it to…" after a server restart** failed | Me (live use) | Todos persisted, but `last_referenced_id` lived in memory | Conversation state persisted in SQLite (`conversation_state` + `messages`), loaded/saved every turn. An unresolved pronoun asks instead of failing. Tests: a new Agent on the same DB resolves "that" and answers the previous Agent's question |
 | Chat header scrolled off-screen in long conversations | Claude (Chrome screenshot) | Message list without `min-h-0` grew past the screen; `scrollIntoView` scrolled the window | `min-h-0` + `overflow-hidden` on the chat column |
 | **"make that call dad" failed to update** | Me (live use) | The model returned `target: "that call"`, though the skill says to use exactly "that". The old matcher treated "that" as a word → no match | Pronouns inside a target are references: "that call" → the last todo if "call" fits it, else match "call". Tests with a stub model |
+| **"hi" / "what can you do?" dumped the whole todo list** | Me (live use) | The router is forced to pick one of five skills; list was the closest. The mock also sent every "what…" question to list | A `help` catalog entry and tool-less skill file with a welcome message. Live check: "hi", "what can you do?", "how does this work" → help; "help me remember to call mom" → add; "what's left" → list |
 | "actually make that call dad" **created a new todo** instead of renaming | Claude (live run) | The router sees only the catalog; update's one-liner didn't cover correction phrasing | Catalog descriptions sharpened. Re-ran live 3×: correct each time |
 
 **Key lesson: prompts are guidance, not guarantees.** The skill told the model to
@@ -97,7 +101,7 @@ matches, and why the model's candidates can only widen the set.
 | "mark shopping related tasks as completed" | Me | No match | The model proposes milk + tofu → "Which one?" Semantic part works; it completes one at a time, not both |
 | "delete all of them" | Me | Safe refusal, nothing deleted | The model proposes every todo → "Which one?" Still safe, but the wrong question for "all" |
 
-Test suite: `make test` → 41 passed (MockLLM/stubs, no network). The live model
+Test suite: `make test` → 43 passed (MockLLM/stubs, no network). The live model
 was also run on the README transcript and the ambiguity flows, with the same
 traces as the mock. It copied "the quote" verbatim in that run, but not always:
 see "that call" above.
@@ -111,6 +115,9 @@ in the CLI and under each chat reply; live model and mock; one-process web demo.
 
 **Doesn't:**
 - One conversation (id=1) shared by everyone who opens the app.
+- "thanks!" also gets the welcome text (the live router sends small talk to help).
+  MockLLM routes anything starting with "help" to help, so "help me remember to
+  call mom" goes wrong in mock mode only.
 - No bulk actions: "complete all shopping tasks" / "delete all of them" get a
   "which one?" question instead of acting on several todos.
 - Semantic matches come only from the live model; MockLLM is lexical, so the

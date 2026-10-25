@@ -37,6 +37,8 @@ message ─► route()  model sees skills/catalog.yaml only (names + one line) �
   `app/validate.py` drops ids that aren't in the store and takes the union with
   lexical matches (stemmed: "buying" = "buy"). The model can widen the set but
   never narrow it. Exact text wins outright.
+- "hi" / "what can you do?" route to a **help** skill: its file has no tool, so its
+  text is the reply (no second model call, no data access).
 - A delete matched only by the model (no shared words) asks "Delete it? (yes/no)" first.
   "no" / "never mind" cancels any pending question.
 - "that" / "it" resolve from `state.last_referenced_id`, also inside a target:
@@ -56,19 +58,19 @@ message ─► route()  model sees skills/catalog.yaml only (names + one line) �
 
 ```
 > Added "send the quote".
-    [catalog_shown] skills=['add', 'list', 'update', 'complete', 'delete']
+    [catalog_shown] skills=['add', 'list', 'update', 'complete', 'delete', 'help']
     [skill_loaded] skill=add, tool=add_todo
     [proposed] tool=add_todo, args={'text': 'send the quote'}
     [validated] skill=add
     [executed] action=add, todo_id=1
 > Changed "send the quote" to "send the revised quote".
-    [catalog_shown] skills=['add', 'list', 'update', 'complete', 'delete']
+    [catalog_shown] skills=['add', 'list', 'update', 'complete', 'delete', 'help']
     [skill_loaded] skill=update, tool=update_todo
     [proposed] tool=update_todo, args={'target': 'that', 'text': 'send the revised quote', 'candidate_ids': []}
     [validated] skill=update, todo_id=1, how=pronoun, model=[], lexical=[]
     [executed] action=update, todo_id=1
 > Added "send the quote".
-    [catalog_shown] skills=['add', 'list', 'update', 'complete', 'delete']
+    [catalog_shown] skills=['add', 'list', 'update', 'complete', 'delete', 'help']
     [skill_loaded] skill=add, tool=add_todo
     [proposed] tool=add_todo, args={'text': 'send the quote'}
     [validated] skill=add
@@ -77,7 +79,7 @@ message ─► route()  model sees skills/catalog.yaml only (names + one line) �
   1. send the revised quote
   2. send the quote
 Reply with a number.
-    [catalog_shown] skills=['add', 'list', 'update', 'complete', 'delete']
+    [catalog_shown] skills=['add', 'list', 'update', 'complete', 'delete', 'help']
     [skill_loaded] skill=delete, tool=delete_todo
     [proposed] tool=delete_todo, args={'target': 'the quote', 'candidate_ids': [2, 1]}
     [clarified] reason=ambiguous, target=the quote, candidates=[1, 2], how=union, model=[2, 1], lexical=[1, 2]
@@ -113,6 +115,7 @@ makes on-demand loading real: the model never sees a schema it didn't ask for.
 ```
 skills/catalog.yaml            names + one-line descriptions
 skills/{add,list,update,complete,delete}.md   tool schema (front-matter) + instructions
+skills/help.md                 welcome text, no tool
 app/agent.py   turn loop      app/validate.py  schema + match → 0/1/many
 app/llm.py     LiteLLM + Mock app/state.py     history, last_referenced_id, pending
 app/store.py   SQLite: todos + conversation state   app/trace.py  trace events

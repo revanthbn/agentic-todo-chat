@@ -27,6 +27,9 @@ class MockLLM:
 
     def route(self, catalog: list[dict], message: str, history: list[dict]) -> str | None:
         msg = message.lower()
+        if re.match(r"\s*(hi|hello|hey|help|yo|good (morning|afternoon|evening))\b", msg) or re.search(
+                r"what can you do|how does this work|who are you|what do you do", msg):
+            return "help"
         if re.match(r"\s*(what|which|show|list)\b", msg):  # questions: "what's done?" is a list, not complete
             return "list"
         return next((name for name, pat in self.ROUTES if re.search(pat, msg)), None)

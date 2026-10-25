@@ -26,7 +26,7 @@ def test_route_sees_catalog_only(monkeypatch):
     assert req["model"] == "anthropic/claude-haiku-5-5"
     assert req["tool_choice"]["function"]["name"] == "choose_skill"
     assert req["tools"][0]["function"]["parameters"]["properties"]["skill"]["enum"] == [
-        "add", "list", "update", "complete", "delete"]
+        "add", "list", "update", "complete", "delete", "help"]
     system = req["messages"][0]["content"]
     assert "Change the text of an existing todo" in system
     assert "update_todo" not in system  # no tool schemas before a skill is chosen

@@ -10,3 +10,5 @@ skills:
     description: Mark an existing todo as done.
   - name: delete
     description: Remove an existing todo.
+  - name: help
+    description: Greetings, small talk, or questions about what you can do or how to use this.

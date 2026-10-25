@@ -54,6 +54,10 @@ class Agent:
 
             # 2. act(): load that one skill file, model proposes a tool call
             skill = load_skill(name)
+            if skill["tool"] is None:  # e.g. help: no tool call, the skill's text is the reply
+                trace.emit("skill_loaded", skill=name, tool=None)
+                trace.emit("executed", action=name)
+                return skill["instructions"]
             trace.emit("skill_loaded", skill=name, tool=skill["tool"]["name"])
             # The model sees the todos (to propose candidate_ids), but check() decides.
             todos = sorted(self.store.list(), key=lambda t: (t["completed"], -t["id"]))[:MAX_TODOS_FOR_MODEL]

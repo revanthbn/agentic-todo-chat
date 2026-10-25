@@ -11,6 +11,7 @@ from app.llm import get_llm
 from app.store import Store
 
 DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
+WRITES = {"add", "update", "complete", "delete"}
 
 load_dotenv()
 llm = get_llm()
@@ -30,9 +31,10 @@ class ChatIn(BaseModel):
 def chat(body: ChatIn):
     reply, trace = agent.turn(body.message)
     # Which todos the UI shows (display only): a list turn sets it ("what's left?" → open),
-    # any other executed change resets it to all so its effect is visible, otherwise unchanged.
+    # a data change resets it to all so its effect is visible, otherwise unchanged.
     executed = next((e for e in trace if e["event"] == "executed"), None)
-    view = None if executed is None else executed.get("status", "all")
+    action = executed["action"] if executed else None
+    view = executed["status"] if action == "list" else "all" if action in WRITES else None
     return {"reply": reply, "trace": trace, "mode": MODE, "view": view}
 
 
