@@ -66,6 +66,7 @@ and fixing what broke.
 - **Stack:** Python, the LiteLLM SDK, SQLite, FastAPI, and Vite + React +
   Tailwind, managed with uv. `cn()` and the shadcn tokens are hand-written,
   skipping `shadcn init` (fragile on the Vite 8 / TS 6 scaffold).
+- Considered Supabase (SQLite needs no setup for a one-command demo) and LangGraph (three fixed stages didn’t need a graph framework).
 
 ## Making matching smarter
 
@@ -226,3 +227,4 @@ now model-dependent); retrieval instead of the 50-todo cap for large lists; undo
    own words, and a live re-run showed the first version added a needless
    confirmation to "make that water the garden". It then routed the user's own
    words back through the pronoun rules, and the live re-check passed.
+
