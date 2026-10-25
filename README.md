@@ -25,14 +25,22 @@ header. **Tests always use MockLLM or a stub.**
 
 ```
 message ─► route()  model sees skills/catalog.yaml only (names + one line) → picks a skill
-        ─► act()    load skills/<skill>.md (instructions + tool schema) → model proposes a call
+        ─► act()    load skills/<skill>.md (instructions + tool schema); model sees the last 6
+                    messages + up to 50 todos → proposes a call with target + candidate_ids
         ─► check()  CODE decides: schema valid? which todo does `target` mean?
                     1 match → execute   0 → "no todo matches"   2+ → ask, change nothing
 ```
 
-- The tool schemas take the user's words (`target: "the quote"`), never an id,
-  so the model never decides ambiguity. `app/validate.py` does.
-- "that" / "it" resolve from `state.last_referenced_id`. If that points at nothing
+- **The model proposes, code decides.** The tool call carries the user's words
+  (`target`) plus `candidate_ids`: every todo the model thinks could be meant,
+  including matches by meaning ("the shopping" → "buy milk", "buy tofu").
+  `app/validate.py` drops ids that aren't in the store and takes the union with
+  lexical matches (stemmed: "buying" = "buy"). The model can widen the set but
+  never narrow it. Exact text wins outright.
+- A delete matched only by the model (no shared words) asks "Delete it? (yes/no)" first.
+  "no" / "never mind" cancels any pending question.
+- "that" / "it" resolve from `state.last_referenced_id`, also inside a target:
+  "that call" means the last todo if "call" fits it. If it points at nothing
   (e.g. the todo was deleted), check() asks which todo instead of failing.
 - Conversation state (history, last_referenced_id, pending question) is stored in
   SQLite next to the todos and loaded/saved every turn, so it survives a restart.
@@ -47,34 +55,33 @@ message ─► route()  model sees skills/catalog.yaml only (names + one line) �
 ## Reproducible multi-turn example (`make cli`, MockLLM)
 
 ```
-> Add a task to send the quote
-Added "send the quote".
+> Added "send the quote".
     [catalog_shown] skills=['add', 'list', 'update', 'complete', 'delete']
     [skill_loaded] skill=add, tool=add_todo
     [proposed] tool=add_todo, args={'text': 'send the quote'}
     [validated] skill=add
     [executed] action=add, todo_id=1
-> Change that to send the revised quote
-Changed "send the quote" to "send the revised quote".
+> Changed "send the quote" to "send the revised quote".
     [catalog_shown] skills=['add', 'list', 'update', 'complete', 'delete']
     [skill_loaded] skill=update, tool=update_todo
-    [proposed] tool=update_todo, args={'target': 'that', 'text': 'send the revised quote'}
-    [validated] skill=update, todo_id=1
+    [proposed] tool=update_todo, args={'target': 'that', 'text': 'send the revised quote', 'candidate_ids': []}
+    [validated] skill=update, todo_id=1, how=pronoun, model=[], lexical=[]
     [executed] action=update, todo_id=1
-> add send the quote
-Added "send the quote".
-    ...
-> delete the quote
-"the quote" matches 2 todos. Which one?
+> Added "send the quote".
+    [catalog_shown] skills=['add', 'list', 'update', 'complete', 'delete']
+    [skill_loaded] skill=add, tool=add_todo
+    [proposed] tool=add_todo, args={'text': 'send the quote'}
+    [validated] skill=add
+    [executed] action=add, todo_id=2
+> "the quote" matches 2 todos. Which one?
   1. send the revised quote
   2. send the quote
 Reply with a number.
     [catalog_shown] skills=['add', 'list', 'update', 'complete', 'delete']
     [skill_loaded] skill=delete, tool=delete_todo
-    [proposed] tool=delete_todo, args={'target': 'the quote'}
-    [clarified] target=the quote, candidates=[1, 2]
-> 2
-Deleted "send the quote".
+    [proposed] tool=delete_todo, args={'target': 'the quote', 'candidate_ids': [2, 1]}
+    [clarified] reason=ambiguous, target=the quote, candidates=[1, 2], how=union, model=[2, 1], lexical=[1, 2]
+> Deleted "send the quote".
     [validated] skill=delete, todo_id=2, via=clarification
     [executed] action=delete, todo_id=2
 ```
@@ -83,7 +90,8 @@ The same flows are tests: `tests/test_multiturn.py`, `tests/test_ambiguity.py`.
 On-demand loading is checked in `tests/test_on_demand.py` (catalog before skill,
 exactly one skill file loaded per turn) and `tests/test_llm_client.py` (the
 route request contains only the catalog; the act request contains only the one
-skill's tool and no todo list).
+skill's tool, recent messages and the todo list). Semantic matching is tested
+with a stub model in `tests/test_ambiguity.py`; MockLLM only does lexical matches.
 
 ## Stack and why
 

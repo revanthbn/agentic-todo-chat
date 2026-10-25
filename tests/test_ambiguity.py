@@ -56,3 +56,75 @@ def test_exact_text_is_not_ambiguous(agent, store):
     agent.turn("add send the revised quote")
     reply, _ = agent.turn("delete send the quote")
     assert texts(store) == ["send the revised quote"]
+
+
+# --- model candidates (stub LLM) + lexical, code decides ---
+
+def _stub(store, skill, args):
+    from app.agent import Agent
+    from tests.conftest import StubLLM
+    return Agent(StubLLM(skill, args), store)
+
+
+def _seed(store, *items):
+    return [store.add(t)["id"] for t in items]
+
+
+def test_semantic_match_from_model_clarifies(store):
+    milk, tofu, _ = _seed(store, "buy milk", "buy tofu", "call mom")
+    reply, trace = _stub(store, "complete", {"target": "the shopping", "candidate_ids": [milk, tofu]}).turn("x")
+    assert trace[-1]["event"] == "clarified"
+    assert trace[-1]["candidates"] == [milk, tofu]
+    assert trace[-1]["model"] == [milk, tofu] and trace[-1]["lexical"] == []
+    assert not any(t["completed"] for t in store.list())
+
+
+def test_model_id_not_in_store_is_dropped(store):
+    _seed(store, "buy milk")
+    reply, trace = _stub(store, "delete", {"target": "the moon", "candidate_ids": [999]}).turn("x")
+    assert reply == 'No todo matches "the moon". Nothing was changed.'
+    assert trace[-1]["dropped"] == [999]
+    assert texts(store) == ["buy milk"]
+
+
+def test_model_cannot_narrow_below_lexical(store):
+    mom, dentist = _seed(store, "call mom", "call dentist")
+    _, trace = _stub(store, "complete", {"target": "call", "candidate_ids": [mom]}).turn("x")
+    assert trace[-1]["event"] == "clarified"
+    assert trace[-1]["candidates"] == [mom, dentist]
+
+
+def test_stemmed_lexical_match(agent, store):
+    agent.turn("add buy milk and eggs")
+    reply, trace = agent.turn("delete the buying milk")
+    assert reply == 'Deleted "buy milk and eggs".'
+    assert store.list() == []
+
+
+def test_delete_supported_only_by_model_asks_to_confirm(store):
+    (milk,) = _seed(store, "buy milk")
+    agent = _stub(store, "delete", {"target": "the groceries", "candidate_ids": [milk]})
+    reply, trace = agent.turn("delete the groceries")
+    assert reply == 'Did you mean "buy milk"? Delete it? (yes/no)'
+    assert trace[-1]["reason"] == "confirm delete (model-only match)"
+    assert texts(store) == ["buy milk"]
+
+    _, trace = agent.turn("yes")
+    assert [e["event"] for e in trace] == ["validated", "executed"]
+    assert store.list() == []
+
+
+def test_no_cancels_a_pending_question(store):
+    (milk,) = _seed(store, "buy milk")
+    agent = _stub(store, "delete", {"target": "the groceries", "candidate_ids": [milk]})
+    agent.turn("delete the groceries")
+    reply, trace = agent.turn("no")
+    assert reply == "Okay, nothing was changed."
+    assert texts(store) == ["buy milk"]
+    assert agent.state.pending is None
+
+
+def test_complete_supported_only_by_model_executes(store):
+    (milk,) = _seed(store, "buy milk")
+    _, trace = _stub(store, "complete", {"target": "the groceries", "candidate_ids": [milk]}).turn("x")
+    assert trace[-1] == {"event": "executed", "action": "complete", "todo_id": milk}

@@ -16,7 +16,8 @@ class StubLLM:
     def route(self, catalog, message, history):
         return self.skill
 
-    def act(self, skill, message):
+    def act(self, skill, message, history, todos):
+        self.seen_todos = todos
         return self.args
 
 

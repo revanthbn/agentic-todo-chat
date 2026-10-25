@@ -28,21 +28,26 @@ def test_route_sees_catalog_only(monkeypatch):
     assert req["tools"][0]["function"]["parameters"]["properties"]["skill"]["enum"] == [
         "add", "list", "update", "complete", "delete"]
     system = req["messages"][0]["content"]
-    assert "Change the text of an existing todo." in system
+    assert "Change the text of an existing todo" in system
     assert "update_todo" not in system  # no tool schemas before a skill is chosen
 
 
-def test_act_sees_one_skill_and_no_todos(monkeypatch):
+def test_act_sees_one_skill_recent_messages_and_todos(monkeypatch):
     calls = []
-    monkeypatch.setattr(litellm, "completion",
-                        fake_completion(calls, {"target": "that", "text": "send the revised quote"}))
-    args = LiteLLMClient().act(load_skill("update"), "Change that to send the revised quote")
+    proposal = {"target": "the shopping", "candidate_ids": [1, 2]}
+    monkeypatch.setattr(litellm, "completion", fake_completion(calls, proposal))
+    history = [{"role": "user", "content": "add buy milk"}, {"role": "assistant", "content": 'Added "buy milk".'}]
+    todos = [{"id": 1, "text": "buy milk", "completed": False}, {"id": 2, "text": "buy tofu", "completed": True}]
+    args = LiteLLMClient().act(load_skill("delete"), "delete the shopping", history, todos)
 
-    assert args == {"target": "that", "text": "send the revised quote"}
+    assert args == proposal
     req = calls[0]
-    assert [t["function"]["name"] for t in req["tools"]] == ["update_todo"]
-    assert req["tool_choice"]["function"]["name"] == "update_todo"
-    assert [m["role"] for m in req["messages"]] == ["system", "user"]
+    assert [t["function"]["name"] for t in req["tools"]] == ["delete_todo"]
+    assert req["tool_choice"]["function"]["name"] == "delete_todo"
+    assert [m["role"] for m in req["messages"]] == ["system", "user", "assistant", "user"]
+    system = req["messages"][0]["content"]
+    assert "- id 1: buy milk" in system and "- id 2: buy tofu (done)" in system
+    assert "candidate_ids" in json.dumps(req["tools"])
 
 
 def test_real_litellm_tools_path_imports(monkeypatch):

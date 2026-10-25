@@ -19,10 +19,15 @@ Cut order if behind: React polish, then React. The CLI alone meets the brief.
 
 ## Decisions
 
-- **The model never decides ambiguity.** Tool schemas take the user's words
-  (`target: "the quote"`), never an id. Code resolves the target to 0, 1 or many todos.
-- **act() sees one skill and the current message only**, with no todo list, so the
-  model can't quietly pick a todo for the user.
+- **The model proposes candidates; code decides.** act() sees the skill, the last
+  6 messages and up to 50 todos (open first), and returns `target` plus
+  `candidate_ids`. check() drops unknown ids and unions them with lexical matches
+  (light stemmer). 0 → no match, 1 → execute, 2+ → clarify, and a delete matched only by
+  the model asks for confirmation. Pronouns still resolve from state; exact text wins.
+  *This reverses my first design* (act() saw no todos at all): purely lexical
+  matching was too weak in live use ("buying milk" ≠ "buy milk", no "the shopping"
+  → milk/tofu). The union rule keeps the original guarantee: the model can add
+  candidates but can't narrow below what the words match.
 - **Two model calls per turn (route, then act).** This doubles latency and cost,
   but it makes on-demand loading real: the model sees the catalog first, then
   exactly one skill file. This is the main tradeoff.
@@ -56,9 +61,10 @@ Cut order if behind: React polish, then React. The CLI alone meets the brief.
 | **Page went white in Chrome** after the first message (fine in Cursor's browser) | Chrome 155 returns a Promise from `scrollIntoView`. The chat's scroll effect returned it, and React called it as a cleanup function → `l is not a function` | One-line fix (block-bodied effect). Reproduced and re-verified by scripting the installed Chrome with puppeteer |
 | **Duplicate todos**: "add send the quote" twice gave two identical rows, and "delete the quote" then offered two identical choices | No duplicate rule | check() blocks add/update that would duplicate an open todo (ignoring case, spacing and trailing punctuation), including after a clarification. 4 tests |
 | (Found while checking the filter in Chrome) **chat header scrolled off-screen** once the conversation got long | The message list was a flex child without `min-h-0`, so it grew past the screen and `scrollIntoView` scrolled the whole window | `min-h-0` + `overflow-hidden` on the chat column; only the messages scroll now |
+| (Found in the live run of the change above) **"actually make that call dad" created a new todo** instead of renaming | The router sees only the catalog, and update's one-liner ("Change the text of an existing todo") didn't cover correction phrasing, so the live model picked add | Catalog descriptions sharpened (update: "including corrections like 'make that X'…"; add: "not for rewording"). Re-ran live 3×: correct each time |
 | **"change it to…" after a server restart** failed | Todos persist in SQLite, but `last_referenced_id` lived in memory and was lost, so "it" resolved to nothing | Root cause fixed: conversation state is persisted in SQLite (`conversation_state` + `messages`), loaded at the start of each turn and saved at the end, so "it" and pending questions survive a restart. Also, an unresolved pronoun (e.g. one pointing at a deleted todo) now asks which todo instead of failing. Tests: a new Agent on the same DB resolves "that" and answers the previous Agent's question |
 
-Test suite: `make test` → 29 passed (MockLLM/stubs, no network). The live model
+Test suite: `make test` → 41 passed (MockLLM/stubs, no network). The live model
 was also run on the README transcript and the ambiguity flows: same traces as
 the mock, and it copied "the quote" verbatim rather than picking a todo.
 
@@ -71,18 +77,20 @@ in the CLI and under each chat reply; live model and mock; one-process web demo.
 
 **Doesn't:**
 - One conversation (id=1) shared by everyone who opens the app.
-- Matching is a token-subset check with no stemming or typo tolerance: "buying
-  milk" doesn't match "buy milk" (seen live).
-- A short target that matches exactly one todo executes without confirmation.
+- Semantic matches come only from the live model; MockLLM is lexical, so the
+  semantic paths are tested with a stub. No typo tolerance in the lexical matcher.
+- update/complete matched only by the model execute without confirmation (only
+  delete asks).
+- The model sees at most 50 todos; older ones can still be matched by their words.
 - No undo.
 - MockLLM misparses some input. The worst case is "change go to gym to go to
   pool", which splits at the first " to " and writes the wrong text. Others:
   "add change the oil", "I finished the gym", "whats left". The live model
   handles all of these.
 
-**Next:** per-user `conversation_id` (with auth); light stemming plus fuzzy
-matching that falls back to clarifying; confirm destructive actions on weak
-matches; an opt-in eval suite that runs the test scenarios against the real model.
+**Next:** per-user `conversation_id` (with auth); an opt-in eval suite that
+runs the test scenarios against the real model (routing and candidate_ids are
+now model-dependent); retrieval instead of the 50-todo cap for large lists; undo.
 
 ## Transcript excerpts
 
@@ -125,3 +133,13 @@ matches; an opt-in eval suite that runs the test scenarios against the real mode
    completed, it lists all of them. I then had the root cause fixed too:
    conversation state persisted in SQLite, with a test where a new Agent on the
    same DB resolves "that" from the previous Agent's turn.
+
+8. **"The current model is kinda sucky at the validation… bring semantic handling
+   in."** I specified the design: the model gets the todo list and proposes
+   `candidate_ids`, and code unions them with a stemmed lexical match, drops
+   unknown ids and confirms model-only deletes. I also asked for pronouns inside
+   a target ("that call") to be treated as references. Claude implemented it with
+   stub-model tests for each rule, then ran it live: "complete the shopping" →
+   milk/tofu clarified, "delete the teeth thing" → confirm, "I finished buying
+   milk" → matched. That same live run exposed a routing bug ("make that call
+   dad" → add), fixed in the catalog wording and re-checked 3×.

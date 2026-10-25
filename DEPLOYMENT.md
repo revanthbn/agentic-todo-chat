@@ -14,7 +14,7 @@ browser ─HTTPS─► Cloud Run (FastAPI)
               ─► load conversation state (Postgres: history, last_referenced_id, pending)
               ─► route(): Anthropic API, catalog only        (call 1)
               ─► load skills/<name>.md from the image
-              ─► act(): Anthropic API, one tool schema        (call 2)
+              ─► act(): Anthropic API, one tool schema + ≤50 of this user's todos (call 2)
               ─► check(): schema + match against this user's todos only
               ─► execute in one transaction: todo change + state update + trace row
   GET /todos ─► SELECT ... WHERE user_id = $1
@@ -36,8 +36,9 @@ load/save means any Cloud Run instance can serve any turn.
 - **Secrets:** `ANTHROPIC_API_KEY` and the DB password live in Secret Manager and
   are mounted as env vars. Nothing goes in the image or the repo.
 - **Tool permissions:** the model only proposes. Code checks the schema, resolves
-  the target and runs a fixed set of five store functions. The model never
-  gets ids, SQL or raw store access. A future destructive skill (e.g. "delete
+  the target and runs a fixed set of five store functions. The model sees only
+  the caller's own todos (≤50) and can propose candidate ids, but check() drops
+  ids that aren't the user's and decides the match. It never gets SQL or raw store access. A future destructive skill (e.g. "delete
   all") would need an explicit confirmation turn in check(). Per-user rate limit
   on `/chat`, plus a max message length.
 
@@ -65,7 +66,8 @@ The trace events are already structured. Log one JSON line per turn with
   Track the `clarified` rate as a measure of how ambiguous the matching is.
 - **Latency:** p50/p95 per turn and per model call (route vs act). Alert on
   p95 > 5s.
-- **Cost:** tokens and `litellm.completion_cost()` per call, summed per user and
+- **Cost:** act()'s prompt grows with the todo list (capped at 50 todos), so
+  watch input tokens per turn. Tokens and `litellm.completion_cost()` per call, summed per user and
   per day. Budget alert in GCP billing plus an app-level per-user daily cap.
 - Error Reporting for exceptions; uptime check on `/todos`.
 

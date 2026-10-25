@@ -4,6 +4,8 @@ import re
 
 import yaml
 
+from app.validate import PRONOUNS, lexical
+
 DEFAULT_MODEL = "anthropic/claude-haiku-5-5"
 
 
@@ -16,7 +18,7 @@ class MockLLM:
     mode = "mock"
 
     ROUTES = [  # order matters: first match wins
-        ("update", r"\b(change|rename|update|edit|modify|reword)\b"),
+        ("update", r"\b(change|rename|update|edit|modify|reword)\b|\bmake (that|it|this)\b"),
         ("complete", r"\b(complete|finish|finished|done|mark|check off|tick off)\b"),
         ("delete", r"\b(delete|remove|drop|cancel)\b"),
         ("add", r"\b(add|create|new|remind me to)\b"),
@@ -29,9 +31,14 @@ class MockLLM:
             return "list"
         return next((name for name, pat in self.ROUTES if re.search(pat, msg)), None)
 
-    def act(self, skill: dict, message: str) -> dict:
-        msg = message.strip().rstrip(".!?")
-        name = skill["name"]
+    def act(self, skill: dict, message: str, history: list[dict], todos: list[dict]) -> dict:
+        args = self._parse(skill["name"], message.strip().rstrip(".!?"))
+        if "target" in args:  # stand-in for the model's semantic guess: lexical matches only
+            target = args["target"].strip().lower()
+            args["candidate_ids"] = [] if target in PRONOUNS else lexical(target, todos)
+        return args
+
+    def _parse(self, name: str, msg: str) -> dict:
         if name == "add":
             text = re.sub(
                 r"^(please\s+)?((add|create)(\s+a)?(\s+new)?(\s+(task|todo))?(\s+(to|called|named))?:?|remind me to)\s+",
@@ -46,6 +53,9 @@ class MockLLM:
             return {"status": "all"}
         if name == "update":
             m = re.search(r"\b(?:change|rename|update|edit|modify|reword)\s+(.+?)\s+to\s+(.+)$", msg, flags=re.I)
+            if m:
+                return {"target": m.group(1), "text": m.group(2)}
+            m = re.search(r"\bmake\s+(that|it|this)\s+(.+)$", msg, flags=re.I)
             return {"target": m.group(1), "text": m.group(2)} if m else {}
         if name == "complete":
             target = re.sub(r"^(please\s+)?(mark|complete|finish|check off|tick off)\s+", "", msg, flags=re.I)
@@ -93,10 +103,12 @@ class LiteLLMClient:
         }
         return self._call(system, [*history[-6:], {"role": "user", "content": message}], tool).get("skill")
 
-    def act(self, skill: dict, message: str) -> dict:
-        # Only the current message and the one loaded skill. No todo list: the model
-        # copies the user's reference words and code decides which todo they mean.
-        return self._call(skill["instructions"], [{"role": "user", "content": message}], skill["tool"])
+    def act(self, skill: dict, message: str, history: list[dict], todos: list[dict]) -> dict:
+        # The one loaded skill, recent messages and the todos (so the model can propose
+        # candidate_ids). The model only proposes; check() decides which todo is meant.
+        listing = "\n".join(f"- id {t['id']}: {t['text']}{' (done)' if t['completed'] else ''}" for t in todos)
+        system = f"{skill['instructions']}\n\nCurrent todos:\n{listing or '(none)'}"
+        return self._call(system, [*history, {"role": "user", "content": message}], skill["tool"])
 
 
 def get_llm():

@@ -1,7 +1,7 @@
 from app.agent import Agent
 from app.llm import MockLLM
 from app.store import Store
-from tests.conftest import texts
+from tests.conftest import StubLLM, texts
 
 
 def test_change_that_uses_last_referenced_todo(agent, store):
@@ -10,7 +10,7 @@ def test_change_that_uses_last_referenced_todo(agent, store):
 
     reply, trace = agent.turn("Change that to send the revised quote")
     proposed = next(e for e in trace if e["event"] == "proposed")
-    assert proposed["args"] == {"target": "that", "text": "send the revised quote"}
+    assert proposed["args"] == {"target": "that", "text": "send the revised quote", "candidate_ids": []}
     assert texts(store) == ["send the revised quote"]
     assert [e["event"] for e in trace][-2:] == ["validated", "executed"]
 
@@ -94,3 +94,28 @@ def test_list_questions_filter_by_status(agent, store):
 
     _, trace = agent.turn("show all my todos")
     assert trace[-1]["status"] == "all"
+
+
+def test_make_that_x_updates_the_last_todo(agent, store):
+    agent.turn("add call mom")
+    agent.turn("actually make that call dad")
+    assert texts(store) == ["call dad"]
+
+
+def test_pronoun_inside_target_resolves_from_state(agent, store):
+    agent.turn("add call dentist")
+    agent.turn("add call mom")  # "that" = call mom
+    stub = Agent(StubLLM("update", {"target": "that call", "text": "call dad", "candidate_ids": [1, 2]}), store)
+    _, trace = stub.turn("make that call call dad")
+    assert trace[-1] == {"event": "executed", "action": "update", "todo_id": 2}
+    assert texts(store) == ["call dentist", "call dad"]
+
+
+def test_pronoun_inside_target_falls_back_to_the_other_words(agent, store):
+    agent.turn("add call dentist")
+    agent.turn("add call mom")
+    agent.turn("add buy milk")  # "that" = buy milk, which "call" doesn't fit
+    stub = Agent(StubLLM("complete", {"target": "that call", "candidate_ids": []}), store)
+    _, trace = stub.turn("complete that call")
+    assert trace[-1]["event"] == "clarified"
+    assert trace[-1]["candidates"] == [1, 2]

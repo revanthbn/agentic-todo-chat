@@ -2,9 +2,10 @@ from app.skills import load_catalog, load_skill
 from app.state import State
 from app.store import Store
 from app.trace import Trace
-from app.validate import PRONOUNS, check_args, find_duplicate, match, resolve_choice
+from app.validate import PRONOUNS, check_args, find_duplicate, is_no, is_yes, resolve_choice, resolve_target
 
 HELP = "I can add, list, update, complete or delete todos. Try \"add send the quote\"."
+MAX_TODOS_FOR_MODEL = 50
 
 
 class Agent:
@@ -27,12 +28,18 @@ class Agent:
         if self.state.pending:
             pending, self.state.pending = self.state.pending, None
             candidates = [t for t in self.store.list() if t["id"] in pending["candidate_ids"]]
-            choice = resolve_choice(message, candidates)
+            if pending.get("confirm"):
+                choice = candidates[0] if candidates and is_yes(message) else None
+            else:
+                choice = resolve_choice(message, candidates)
             if choice:
                 if dup := self.duplicate(pending["skill"], pending["args"], choice, trace):
                     return dup
                 trace.emit("validated", skill=pending["skill"], todo_id=choice["id"], via="clarification")
                 return self.execute(pending["skill"], pending["args"], choice, trace)
+            if is_no(message):
+                trace.emit("failed", reason="cancelled by user")
+                return "Okay, nothing was changed."
             # Not an answer to the question: drop it and handle the message normally.
 
         try:
@@ -48,7 +55,9 @@ class Agent:
             # 2. act(): load that one skill file, model proposes a tool call
             skill = load_skill(name)
             trace.emit("skill_loaded", skill=name, tool=skill["tool"]["name"])
-            args = self.llm.act(skill, message)
+            # The model sees the todos (to propose candidate_ids), but check() decides.
+            todos = sorted(self.store.list(), key=lambda t: (t["completed"], -t["id"]))[:MAX_TODOS_FOR_MODEL]
+            args = self.llm.act(skill, message, self.state.history[-6:], todos)
             trace.emit("proposed", tool=skill["tool"]["name"], args=args)
         except Exception as e:  # model/network errors: report, change nothing
             trace.emit("failed", reason=f"model error: {type(e).__name__}: {str(e)[:200]}")
@@ -71,7 +80,14 @@ class Agent:
 
         target = args["target"].strip()
         todos = self.store.list()
-        matches = match(target, todos, self.state.last_referenced_id)
+        store_ids = {t["id"] for t in todos}
+        proposed = args.get("candidate_ids", [])
+        model_ids = [i for i in proposed if i in store_ids]
+        how, ids, lex = resolve_target(target, model_ids, todos, self.state.last_referenced_id)
+        info = {"how": how, "model": model_ids, "lexical": lex}
+        if dropped := [i for i in proposed if i not in store_ids]:
+            info["dropped"] = dropped
+        matches = [t for t in todos if t["id"] in ids]
         if not matches:
             if target.lower() in PRONOUNS:
                 # "it" points at nothing (e.g. after a restart or a delete): ask instead of failing.
@@ -81,21 +97,29 @@ class Agent:
                                         f"Which todo do you mean by \"{target}\"?", reason="unresolved pronoun")
                 trace.emit("failed", reason="pronoun with no todos", target=target)
                 return f"I'm not sure which todo \"{target}\" means. Nothing was changed."
-            trace.emit("failed", reason="no match", target=target)
+            trace.emit("failed", reason="no match", target=target, **info)
             return f"No todo matches \"{target}\". Nothing was changed."
         if len(matches) > 1:
             return self.clarify(name, args, matches, trace,
-                                f"\"{target}\" matches {len(matches)} todos. Which one?", reason="ambiguous")
-        if dup := self.duplicate(name, args, matches[0], trace):
+                                f"\"{target}\" matches {len(matches)} todos. Which one?", reason="ambiguous", **info)
+        todo = matches[0]
+        if name == "delete" and how == "union" and todo["id"] not in lex:
+            # Only the model thinks this is the one: confirm before deleting.
+            self.state.pending = {"skill": name, "args": args, "candidate_ids": [todo["id"]], "confirm": True}
+            trace.emit("clarified", reason="confirm delete (model-only match)", target=target,
+                       candidates=[todo["id"]], **info)
+            return f"Did you mean \"{todo['text']}\"? Delete it? (yes/no)"
+        if dup := self.duplicate(name, args, todo, trace):
             return dup
-        trace.emit("validated", skill=name, todo_id=matches[0]["id"])
-        return self.execute(name, args, matches[0], trace)
+        trace.emit("validated", skill=name, todo_id=todo["id"], **info)
+        return self.execute(name, args, todo, trace)
 
-    def clarify(self, name: str, args: dict, candidates: list[dict], trace: Trace, question: str, reason: str) -> str:
+    def clarify(self, name: str, args: dict, candidates: list[dict], trace: Trace, question: str,
+                reason: str, **info) -> str:
         """Ask which todo, change nothing; the next turn may answer via state.pending."""
         ids = [c["id"] for c in candidates]
         self.state.pending = {"skill": name, "args": args, "candidate_ids": ids}
-        trace.emit("clarified", reason=reason, target=args["target"], candidates=ids)
+        trace.emit("clarified", reason=reason, target=args["target"], candidates=ids, **info)
         options = "\n".join(f"  {i}. {c['text']}" for i, c in enumerate(candidates, 1))
         return f"{question}\n{options}\nReply with a number."
 

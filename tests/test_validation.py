@@ -95,3 +95,21 @@ def test_duplicate_checked_after_clarification(agent, store):
     assert "already on your list" in reply
     assert trace[-1]["reason"] == "duplicate"
     assert texts(store) == ["send the quote", "send the revised quote"]
+
+
+def test_candidate_ids_must_be_integers(store):
+    store.add("buy milk")
+    _, trace = run(store, "delete", {"target": "milk", "candidate_ids": ["1"]})
+    assert trace[-1] == {"event": "failed", "reason": "'candidate_ids' must be a list of integers"}
+    assert texts(store) == ["buy milk"]
+
+
+def test_model_sees_at_most_50_todos_open_first(store):
+    from tests.conftest import StubLLM
+    for i in range(60):
+        store.add(f"task {i}")
+    store.complete(60)
+    stub = StubLLM("list", {"status": "all"})
+    Agent(stub, store).turn("x")
+    assert len(stub.seen_todos) == 50
+    assert all(not t["completed"] for t in stub.seen_todos)
