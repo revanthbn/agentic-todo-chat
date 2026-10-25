@@ -170,6 +170,9 @@ now model-dependent); retrieval instead of the 50-todo cap for large lists; undo
 
 ## Transcript excerpts
 
+Full Claude Code session: [`transcripts/claude-code.md`](transcripts/claude-code.md).
+The excerpts below are the key moments.
+
 1. **Planning prompt.** "Read CLAUDE.md, docs/brief.md and docs/design/. Before
    writing any code, give me a build plan in 4 chunks… Flag anything in my
    structure or rules that you think is wrong, missing, or will cost too much time."
