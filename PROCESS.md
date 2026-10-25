@@ -125,10 +125,11 @@ destructive actions on weak matches; undo of the last action.
 
 3. **Claude's first test run.** Claude wrote 16 tests and one failed. The
    failing test was Claude's own: it asserted on `trace[-2]["args"]` and ended
-   the assertion with `or True`. I checked: the assertion was wrong *and* would
-   have passed vacuously if the index had been right. Fixed to look up the
-   `proposed` event by name. I'm flagging this as an example of AI-written test
-   code needing review even when it passes.
+   the assertion with `or True`. Claude spotted the cause from the failure: the
+   index was wrong, *and* the `or True` would have made the assertion pass
+   vacuously if the index had been right. Fixed to look up the `proposed`
+   event by name. This is an example of AI-written test code that needs reading,
+   not just running.
 
 4. **UI verification.** With no browser tool, Claude used headless Chrome
    screenshots. The first one showed the list collapsed (count correct, rows
@@ -136,7 +137,7 @@ destructive actions on weak matches; undo of the last action.
    looking, not by the build (which was clean both times). Fixed the framer-motion
    height animation and the Tailwind v4 layer order.
 
-5. **Adversarial probe of the mock.** I asked Claude to probe the MockLLM with
-   inputs it wasn't written for, rather than just reporting the happy path.
+5. **Adversarial probe of the mock.** Unprompted, Claude ran the MockLLM on
+   inputs it wasn't written for, before writing up what works.
    It found a wrong write ("change go to gym to go to pool"). That's logged
    above instead of patched, per the 15-minute cap.
