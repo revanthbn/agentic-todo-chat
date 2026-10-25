@@ -39,6 +39,8 @@ message ─► route()  model sees skills/catalog.yaml only (names + one line) �
 - A clarifying question is remembered in `state.pending`. The next reply can be
   "2", "the second one", or narrowing words ("the revised one"). Anything else
   clears the question and is handled as a new request.
+- "What's left?" / "what's done?" filter the todo list in the UI (`/chat` returns
+  the list's status as `view`); the next change switches it back to All.
 - Every stage emits a trace event: `catalog_shown, skill_loaded, proposed,
   validated, clarified, executed, failed`.
 

@@ -4,9 +4,11 @@ import { cn } from "@/lib/utils"
 type TraceEvent = { event: string } & Record<string, unknown>
 type Message = { role: "user" | "assistant"; text: string; trace?: TraceEvent[]; error?: boolean }
 
+export type View = "all" | "open" | "done"
+
 export interface ChatPaneProps {
   mode: string
-  onTurn: () => void
+  onTurn: (view: View | null) => void
 }
 
 function formatEvent(e: TraceEvent) {
@@ -60,6 +62,7 @@ export function ChatPane({ mode, onTurn }: ChatPaneProps) {
     setInput("")
     setMessages((m) => [...m, { role: "user", text }])
     setBusy(true)
+    let view: View | null = null
     try {
       const res = await fetch("/chat", {
         method: "POST",
@@ -68,17 +71,18 @@ export function ChatPane({ mode, onTurn }: ChatPaneProps) {
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
+      view = data.view
       setMessages((m) => [...m, { role: "assistant", text: data.reply, trace: data.trace }])
     } catch (err) {
       setMessages((m) => [...m, { role: "assistant", text: `Request failed: ${err}`, error: true }])
     } finally {
       setBusy(false)
-      onTurn()
+      onTurn(view)
     }
   }
 
   return (
-    <aside className="flex h-full flex-col border-l border-border bg-muted/40">
+    <aside className="flex h-full min-h-0 flex-col overflow-hidden border-l border-border bg-muted/40">
       <header className="flex items-center justify-between border-b border-border px-5 py-3">
         <span className="text-sm font-medium">Chat</span>
         <span className="rounded border border-border bg-background px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
@@ -86,7 +90,7 @@ export function ChatPane({ mode, onTurn }: ChatPaneProps) {
         </span>
       </header>
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
         {messages.length === 0 && (
           <div className="space-y-1 text-sm text-muted-foreground">
             <p>Try:</p>

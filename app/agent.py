@@ -120,7 +120,7 @@ class Agent:
             todos = self.store.list()
             if args["status"] != "all":
                 todos = [t for t in todos if t["completed"] == (args["status"] == "done")]
-            trace.emit("executed", action="list", count=len(todos))
+            trace.emit("executed", action="list", status=args["status"], count=len(todos))
             if not todos:
                 return "No todos." if args["status"] == "all" else f"No {args['status']} todos."
             return "\n".join(f"{'[x]' if t['completed'] else '[ ]'} {t['text']}" for t in todos)

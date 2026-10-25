@@ -77,3 +77,20 @@ def test_unresolved_pronoun_after_delete_lists_open_todos(agent, store):
     reply, trace = agent.turn("complete it")
     assert trace[-1]["reason"] == "unresolved pronoun"
     assert trace[-1]["candidates"] == [2]  # open todos only
+
+
+def test_list_questions_filter_by_status(agent, store):
+    agent.turn("add call mom")
+    agent.turn("add buy milk")
+    agent.turn("mark call mom done")
+
+    reply, trace = agent.turn("what's done?")
+    assert reply == "[x] call mom"
+    assert trace[-1] == {"event": "executed", "action": "list", "status": "done", "count": 1}
+
+    reply, trace = agent.turn("what's left")
+    assert reply == "[ ] buy milk"
+    assert trace[-1]["status"] == "open"
+
+    _, trace = agent.turn("show all my todos")
+    assert trace[-1]["status"] == "all"

@@ -25,6 +25,8 @@ class MockLLM:
 
     def route(self, catalog: list[dict], message: str, history: list[dict]) -> str | None:
         msg = message.lower()
+        if re.match(r"\s*(what|which|show|list)\b", msg):  # questions: "what's done?" is a list, not complete
+            return "list"
         return next((name for name, pat in self.ROUTES if re.search(pat, msg)), None)
 
     def act(self, skill: dict, message: str) -> dict:

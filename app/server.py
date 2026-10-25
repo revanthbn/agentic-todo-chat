@@ -29,7 +29,11 @@ class ChatIn(BaseModel):
 @app.post("/chat")
 def chat(body: ChatIn):
     reply, trace = agent.turn(body.message)
-    return {"reply": reply, "trace": trace, "mode": MODE}
+    # Which todos the UI shows (display only): a list turn sets it ("what's left?" → open),
+    # any other executed change resets it to all so its effect is visible, otherwise unchanged.
+    executed = next((e for e in trace if e["event"] == "executed"), None)
+    view = None if executed is None else executed.get("status", "all")
+    return {"reply": reply, "trace": trace, "mode": MODE, "view": view}
 
 
 @app.get("/todos")

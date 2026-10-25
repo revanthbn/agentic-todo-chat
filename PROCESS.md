@@ -37,6 +37,10 @@ Cut order if behind: React polish, then React. The CLI alone meets the brief.
   Re-adding a finished task is allowed.
 - **MockLLM is a small keyword parser, not scripted replies**, so the no-key demo
   accepts any input. I capped it at 15 minutes; its gaps are listed below.
+- **"What's left?" / "what's done?" filter the list in the UI.** The list
+  turn's `status` is returned as `view` from `/chat`; the filter is display-only
+  React state (an All / Left / Done toggle shows it). The next successful change
+  resets it to All so its effect is visible; failed turns and questions keep it.
 - **Read-only list in the UI.** The reference component's add/edit/delete
   would bypass check() and the trace, so I stripped them. Chat is the only
   write path.
@@ -51,9 +55,10 @@ Cut order if behind: React polish, then React. The CLI alone meets the brief.
 | Live model: every chat message returned **HTTP 500** (`No module named 'mcp'`) | LiteLLM 1.106.3 imports its MCP handler whenever `tools` are passed; `mcp` only ships in the `litellm[mcp]` extra. Our LiteLLM test patched `completion()` out, so the suite stayed green | Depend on `litellm[mcp]`. Added a regression test through the real `litellm.completion` (fails without `mcp`, passes with it). Model errors now return "The model call failed… Nothing was changed." instead of a 500 |
 | **Page went white in Chrome** after the first message (fine in Cursor's browser) | Chrome 155 returns a Promise from `scrollIntoView`. The chat's scroll effect returned it, and React called it as a cleanup function → `l is not a function` | One-line fix (block-bodied effect). Reproduced and re-verified by scripting the installed Chrome with puppeteer |
 | **Duplicate todos**: "add send the quote" twice gave two identical rows, and "delete the quote" then offered two identical choices | No duplicate rule | check() blocks add/update that would duplicate an open todo (ignoring case, spacing and trailing punctuation), including after a clarification. 4 tests |
+| (Found while checking the filter in Chrome) **chat header scrolled off-screen** once the conversation got long | The message list was a flex child without `min-h-0`, so it grew past the screen and `scrollIntoView` scrolled the whole window | `min-h-0` + `overflow-hidden` on the chat column; only the messages scroll now |
 | **"change it to…" after a server restart** failed | Todos persist in SQLite, but `last_referenced_id` lived in memory and was lost, so "it" resolved to nothing | Root cause fixed: conversation state is persisted in SQLite (`conversation_state` + `messages`), loaded at the start of each turn and saved at the end, so "it" and pending questions survive a restart. Also, an unresolved pronoun (e.g. one pointing at a deleted todo) now asks which todo instead of failing. Tests: a new Agent on the same DB resolves "that" and answers the previous Agent's question |
 
-Test suite: `make test` → 28 passed (MockLLM/stubs, no network). The live model
+Test suite: `make test` → 29 passed (MockLLM/stubs, no network). The live model
 was also run on the README transcript and the ambiguity flows: same traces as
 the mock, and it copied "the quote" verbatim rather than picking a todo.
 

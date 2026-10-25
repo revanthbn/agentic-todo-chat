@@ -9,17 +9,27 @@ export interface TodoItem {
   completed: boolean
 }
 
+export type TodoFilter = "all" | "open" | "done"
+
 export interface TodoProps {
   todos: TodoItem[]
+  filter?: TodoFilter
   className?: string
 }
 
-export function Todo({ todos, className }: TodoProps) {
+const EMPTY: Record<TodoFilter, string> = {
+  all: "No todos yet. Ask the chat to add one.",
+  open: "Nothing left. Everything is done.",
+  done: "Nothing done yet.",
+}
+
+export function Todo({ todos, filter = "all", className }: TodoProps) {
+  const shown = filter === "all" ? todos : todos.filter((t) => t.completed === (filter === "done"))
   return (
     <div className={cn("w-full max-w-2xl mx-auto relative", className)}>
       <div className="divide-y divide-border relative border-y border-border">
         <AnimatePresence mode="popLayout" initial={false}>
-          {todos.map((todo) => (
+          {shown.map((todo) => (
             <motion.div
               key={todo.id}
               layout
@@ -58,9 +68,9 @@ export function Todo({ todos, className }: TodoProps) {
             </motion.div>
           ))}
         </AnimatePresence>
-        {todos.length === 0 && (
+        {shown.length === 0 && (
           <div className="px-4 py-6 text-sm text-muted-foreground">
-            No todos yet. Ask the chat to add one.
+            {EMPTY[todos.length === 0 ? "all" : filter]}
           </div>
         )}
       </div>
