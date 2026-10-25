@@ -91,7 +91,8 @@ class Agent:
         store_ids = {t["id"] for t in todos}
         proposed = args.get("candidate_ids", [])
         model_ids = [i for i in proposed if i in store_ids]
-        how, ids, lex = resolve_target(target, model_ids, todos, self.state.last_referenced_id)
+        how, ids, lex = resolve_target(target, model_ids, todos, self.state.last_referenced_id,
+                                       message, args.get("text"))
         info = {"how": how, "model": model_ids, "lexical": lex}
         if dropped := [i for i in proposed if i not in store_ids]:
             info["dropped"] = dropped
@@ -111,12 +112,16 @@ class Agent:
             return self.clarify(name, args, matches, trace,
                                 f"\"{target}\" matches {len(matches)} todos. Which one?", reason="ambiguous", **info)
         todo = matches[0]
-        if name == "delete" and how == "union" and todo["id"] not in lex:
-            # Only the model thinks this is the one: confirm before deleting.
+        model_only = how in ("union", "ungrounded") and todo["id"] not in lex
+        if model_only and (name == "delete" or how == "ungrounded"):
+            # Only the model thinks this is the one (for a delete, or with a target the
+            # user never said): confirm first.
             self.state.pending = {"skill": name, "args": args, "candidate_ids": [todo["id"]], "confirm": True}
-            trace.emit("clarified", reason="confirm delete (model-only match)", target=target,
+            trace.emit("clarified", reason=f"confirm {name} (model-only match)", target=target,
                        candidates=[todo["id"]], **info)
-            return f"Did you mean \"{todo['text']}\"? Delete it? (yes/no)"
+            action = {"delete": "Delete it?", "complete": "Mark it done?"}.get(
+                name, f"Change it to \"{args.get('text', '')}\"?")
+            return f"Did you mean \"{todo['text']}\"? {action} (yes/no)"
         if dup := self.duplicate(name, args, todo, trace):
             return dup
         trace.emit("validated", skill=name, todo_id=todo["id"], **info)

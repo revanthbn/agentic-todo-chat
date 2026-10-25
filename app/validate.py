@@ -74,18 +74,45 @@ def lexical(target: str, todos: list[dict]) -> list[int]:
     return [x["id"] for x in todos if words and words <= tokens(x["text"])] if words else []
 
 
-def resolve_target(target: str, model_ids: list[int], todos: list[dict],
-                   last_id: int | None) -> tuple[str, list[int], list[int]]:
+COMMAND_WORDS = {"complete", "completed", "finish", "finished", "done", "mark", "as", "check", "tick", "off",
+                 "delete", "remove", "drop", "cancel", "change", "update", "rename", "edit", "modify",
+                 "make", "actually", "already", "i", "please", "to"}
+
+
+def in_message(target: str, message: str) -> bool:
+    """Did the user actually say this phrase? (whole words, case/spacing ignored)"""
+    t = re.escape(normalize(target))
+    return bool(t) and re.search(rf"(?<![a-z0-9']){t}(?![a-z0-9'])", normalize(message)) is not None
+
+
+def message_reference(message: str, new_text: str | None = None) -> str:
+    """The user's own words for the todo: the message minus command words (and the new text, for update)."""
+    drop = COMMAND_WORDS | (set(re.findall(r"[a-z0-9']+", new_text.lower())) if new_text else set())
+    return " ".join(w for w in re.findall(r"[a-z0-9']+", message.lower()) if w not in drop)
+
+
+def resolve_target(target: str, model_ids: list[int], todos: list[dict], last_id: int | None,
+                   message: str, new_text: str | None = None) -> tuple[str, list[int], list[int]]:
     """Code decides which todos the target means. Returns (how, ids, lexical_ids).
 
+    If the target is the user's own phrase:
     - "that"/"it" alone → last_referenced_id (model ids ignored)
     - exact text → that todo
     - "that call" → last_referenced_id if "call" fits it, else match "call" normally
     - otherwise the union of the model's candidates and lexical matches, so the
       model can widen the set (semantic matches) but never narrow it.
+    If the model rewrote the target (it isn't in the message), it is not trusted:
+    the same rules run on the user's own words instead (so "make that X" still
+    resolves "that" from state), and the rewritten target only adds model candidates.
     """
     ids_in_store = {x["id"] for x in todos}
+    model_ids = [i for i in model_ids if i in ids_in_store]
     t = target.strip().lower()
+    if not in_message(t, message):
+        exact = [x["id"] for x in todos if normalize(x["text"]) == normalize(t)]
+        ref = message_reference(message, new_text)
+        how, ids, lex = resolve_target(ref, model_ids + exact, todos, last_id, ref)
+        return ("ungrounded" if how == "union" else how), ids, lex
     if t in PRONOUNS:
         return "pronoun", [last_id] if last_id in ids_in_store else [], []
     exact = [x["id"] for x in todos if normalize(x["text"]) == normalize(t)]
@@ -93,10 +120,10 @@ def resolve_target(target: str, model_ids: list[int], todos: list[dict],
         return "exact", exact, exact
     if REFERENCE_WORDS & set(re.findall(r"[a-z']+", t)) and last_id in ids_in_store:
         ref = next(x for x in todos if x["id"] == last_id)
-        if tokens(t) and tokens(t) <= tokens(ref["text"]):
+        if tokens(t) <= tokens(ref["text"]):  # "that" + nothing else, or "that call" fitting it
             return "pronoun", [last_id], []
     lex = lexical(t, todos)
-    return "union", sorted({i for i in model_ids if i in ids_in_store} | set(lex)), lex
+    return "union", sorted(set(model_ids) | set(lex)), lex
 
 
 def is_yes(reply: str) -> bool:

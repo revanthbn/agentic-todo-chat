@@ -2,9 +2,9 @@ from app.agent import Agent
 from tests.conftest import StubLLM, texts
 
 
-def run(store, skill, args):
+def run(store, skill, args, message="anything"):
     agent = Agent(StubLLM(skill, args), store)
-    return agent.turn("anything")
+    return agent.turn(message)
 
 
 def test_empty_text_is_rejected(store):
@@ -43,7 +43,7 @@ def test_no_match_changes_nothing(store):
 def test_completing_a_done_todo_fails(store):
     todo = store.add("send the quote")
     store.complete(todo["id"])
-    reply, trace = run(store, "complete", {"target": "send the quote"})
+    reply, trace = run(store, "complete", {"target": "send the quote"}, "complete send the quote")
     assert "already done" in reply
     assert trace[-1]["event"] == "failed"
 

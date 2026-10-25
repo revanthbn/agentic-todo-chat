@@ -119,3 +119,13 @@ def test_pronoun_inside_target_falls_back_to_the_other_words(agent, store):
     _, trace = stub.turn("complete that call")
     assert trace[-1]["event"] == "clarified"
     assert trace[-1]["candidates"] == [1, 2]
+
+
+def test_pronoun_resolves_from_state_when_model_rewrites_it(agent, store):
+    agent.turn("add call dentist")
+    agent.turn("add water plants")  # "that" = water plants
+    stub = Agent(StubLLM("update", {"target": "water plants", "text": "water the garden",
+                                    "candidate_ids": [2]}), store)
+    _, trace = stub.turn("actually make that water the garden")
+    assert trace[-1] == {"event": "executed", "action": "update", "todo_id": 2}
+    assert texts(store) == ["call dentist", "water the garden"]

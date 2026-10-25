@@ -72,7 +72,8 @@ def _seed(store, *items):
 
 def test_semantic_match_from_model_clarifies(store):
     milk, tofu, _ = _seed(store, "buy milk", "buy tofu", "call mom")
-    reply, trace = _stub(store, "complete", {"target": "the shopping", "candidate_ids": [milk, tofu]}).turn("x")
+    reply, trace = _stub(store, "complete", {"target": "the shopping", "candidate_ids": [milk, tofu]}).turn(
+        "complete the shopping")
     assert trace[-1]["event"] == "clarified"
     assert trace[-1]["candidates"] == [milk, tofu]
     assert trace[-1]["model"] == [milk, tofu] and trace[-1]["lexical"] == []
@@ -81,7 +82,7 @@ def test_semantic_match_from_model_clarifies(store):
 
 def test_model_id_not_in_store_is_dropped(store):
     _seed(store, "buy milk")
-    reply, trace = _stub(store, "delete", {"target": "the moon", "candidate_ids": [999]}).turn("x")
+    reply, trace = _stub(store, "delete", {"target": "the moon", "candidate_ids": [999]}).turn("delete the moon")
     assert reply == 'No todo matches "the moon". Nothing was changed.'
     assert trace[-1]["dropped"] == [999]
     assert texts(store) == ["buy milk"]
@@ -89,7 +90,7 @@ def test_model_id_not_in_store_is_dropped(store):
 
 def test_model_cannot_narrow_below_lexical(store):
     mom, dentist = _seed(store, "call mom", "call dentist")
-    _, trace = _stub(store, "complete", {"target": "call", "candidate_ids": [mom]}).turn("x")
+    _, trace = _stub(store, "complete", {"target": "call", "candidate_ids": [mom]}).turn("complete call")
     assert trace[-1]["event"] == "clarified"
     assert trace[-1]["candidates"] == [mom, dentist]
 
@@ -126,7 +127,8 @@ def test_no_cancels_a_pending_question(store):
 
 def test_complete_supported_only_by_model_executes(store):
     (milk,) = _seed(store, "buy milk")
-    _, trace = _stub(store, "complete", {"target": "the groceries", "candidate_ids": [milk]}).turn("x")
+    _, trace = _stub(store, "complete", {"target": "the groceries", "candidate_ids": [milk]}).turn(
+        "complete the groceries")
     assert trace[-1] == {"event": "executed", "action": "complete", "todo_id": milk}
 
 
@@ -136,4 +138,32 @@ def test_paraphrase_tense_and_typo_resolved_by_model_candidate(store):
     reply, trace = agent.turn("i already bought milk anfd eggs")
     assert reply == 'Marked "buy milk and eggs" as done.'
     assert next(e for e in trace if e["event"] == "validated")["lexical"] == []  # only the model saw it
+    assert [t["completed"] for t in store.list()] == [True, False]
+
+
+# --- the model's target only counts if the user said it ---
+
+def test_model_rewritten_target_cannot_skip_clarification(store):
+    mom, dentist = _seed(store, "call mom", "call dentist")
+    _, trace = _stub(store, "complete", {"target": "call mom", "candidate_ids": [mom]}).turn("complete call")
+    assert trace[-1]["event"] == "clarified"
+    assert trace[-1]["how"] == "ungrounded"
+    assert trace[-1]["candidates"] == [mom, dentist]
+    assert not any(t["completed"] for t in store.list())
+
+
+def test_exact_text_the_user_said_executes(store):
+    mom, _ = _seed(store, "call mom", "call dentist")
+    _, trace = _stub(store, "complete", {"target": "call mom", "candidate_ids": [mom]}).turn("complete call mom")
+    assert trace[-1] == {"event": "executed", "action": "complete", "todo_id": mom}
+
+
+def test_rewritten_target_with_one_match_confirms(store):
+    mom, _ = _seed(store, "call mom", "buy milk")
+    agent = _stub(store, "complete", {"target": "call mom", "candidate_ids": [mom]})
+    reply, trace = agent.turn("i rang my mother")
+    assert reply == 'Did you mean "call mom"? Mark it done? (yes/no)'
+    assert trace[-1]["reason"] == "confirm complete (model-only match)"
+    assert not any(t["completed"] for t in store.list())
+    agent.turn("yes")
     assert [t["completed"] for t in store.list()] == [True, False]
