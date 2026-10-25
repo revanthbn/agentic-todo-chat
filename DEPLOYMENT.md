@@ -20,15 +20,17 @@ browser ─HTTPS─► Cloud Run (FastAPI)
   GET /todos ─► SELECT ... WHERE user_id = $1
 ```
 
-Changes from the prototype: conversation state moves out of process memory
-into a `conversations` table keyed by `(user_id, conversation_id)`, and every
-`todos` query is scoped by `user_id`.
+Changes from the prototype: the prototype already loads/saves conversation state
+from SQLite every turn (`conversation_state` + `messages`, single conversation
+id=1). In production those tables move to Postgres and gain `user_id` +
+`conversation_id`, and every `todos` query is scoped by `user_id`. Per-turn
+load/save means any Cloud Run instance can serve any turn.
 
 ## Auth, isolation, secrets, tool permissions
 
 - **Auth:** Google Identity Platform (OIDC). FastAPI checks the JWT on every request
   and takes `user_id` from the verified token, never from the request body.
-- **Isolation:** `user_id` column on `todos` and `conversations`, plus Postgres
+- **Isolation:** `user_id` column on `todos`, `conversation_state` and `messages`, plus Postgres
   row-level security as a second line of defence. `match()` only ever sees the
   caller's todos, so the model can't reach another user's data even by name.
 - **Secrets:** `ANTHROPIC_API_KEY` and the DB password live in Secret Manager and

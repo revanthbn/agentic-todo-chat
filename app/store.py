@@ -1,4 +1,9 @@
+import json
 import sqlite3
+
+from app.state import State
+
+CONVERSATION_ID = 1  # single conversation for now; per-user conversation_id in production
 
 
 class Store:
@@ -11,6 +16,40 @@ class Store:
             "completed INTEGER NOT NULL DEFAULT 0, "
             "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
         )
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS conversation_state ("
+            "id INTEGER PRIMARY KEY, last_referenced_id INTEGER, pending_json TEXT)"
+        )
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS messages ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, role TEXT NOT NULL, content TEXT NOT NULL, "
+            "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+        )
+        self.db.commit()
+
+    def load_state(self) -> State:
+        row = self.db.execute(
+            "SELECT last_referenced_id, pending_json FROM conversation_state WHERE id = ?",
+            (CONVERSATION_ID,),
+        ).fetchone()
+        history = [{"role": r["role"], "content": r["content"]}
+                   for r in self.db.execute("SELECT role, content FROM messages ORDER BY id")]
+        if row is None:
+            return State(history=history)
+        pending = json.loads(row["pending_json"]) if row["pending_json"] else None
+        return State(history=history, last_referenced_id=row["last_referenced_id"], pending=pending)
+
+    def save_state(self, state: State, new_messages: list[dict]) -> None:
+        """Upsert the conversation row and append this turn's messages, in one commit."""
+        self.db.execute(
+            "INSERT INTO conversation_state (id, last_referenced_id, pending_json) VALUES (?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET last_referenced_id = excluded.last_referenced_id, "
+            "pending_json = excluded.pending_json",
+            (CONVERSATION_ID, state.last_referenced_id,
+             json.dumps(state.pending) if state.pending else None),
+        )
+        self.db.executemany("INSERT INTO messages (role, content) VALUES (?, ?)",
+                            [(m["role"], m["content"]) for m in new_messages])
         self.db.commit()
 
     def list(self) -> list[dict]:

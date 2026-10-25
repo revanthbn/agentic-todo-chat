@@ -33,7 +33,9 @@ message ─► route()  model sees skills/catalog.yaml only (names + one line) �
 - The tool schemas take the user's words (`target: "the quote"`), never an id,
   so the model never decides ambiguity. `app/validate.py` does.
 - "that" / "it" resolve from `state.last_referenced_id`. If that points at nothing
-  (after a restart or a delete), check() asks which todo instead of failing.
+  (e.g. the todo was deleted), check() asks which todo instead of failing.
+- Conversation state (history, last_referenced_id, pending question) is stored in
+  SQLite next to the todos and loaded/saved every turn, so it survives a restart.
 - A clarifying question is remembered in `state.pending`. The next reply can be
   "2", "the second one", or narrowing words ("the revised one"). Anything else
   clears the question and is handled as a new request.
@@ -103,7 +105,7 @@ skills/catalog.yaml            names + one-line descriptions
 skills/{add,list,update,complete,delete}.md   tool schema (front-matter) + instructions
 app/agent.py   turn loop      app/validate.py  schema + match → 0/1/many
 app/llm.py     LiteLLM + Mock app/state.py     history, last_referenced_id, pending
-app/store.py   SQLite         app/trace.py     trace events
+app/store.py   SQLite: todos + conversation state   app/trace.py  trace events
 app/cli.py     terminal chat  app/server.py    FastAPI
 web/           React UI (list read-only, refreshed from GET /todos after each turn)
 ```

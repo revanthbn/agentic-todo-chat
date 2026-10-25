@@ -15,7 +15,7 @@ DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 load_dotenv()
 llm = get_llm()
 store = Store(os.environ.get("TODO_DB", "todos.db"))
-agent = Agent(llm, store)  # one conversation, held in the backend
+agent = Agent(llm, store)  # one conversation; its state is in SQLite, loaded/saved per turn
 MODE = f"live ({llm.model})" if llm.mode == "live" else "mock (no ANTHROPIC_API_KEY)"
 print(f"MODE: {MODE}")
 

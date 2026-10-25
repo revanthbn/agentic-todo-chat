@@ -8,15 +8,19 @@ HELP = "I can add, list, update, complete or delete todos. Try \"add send the qu
 
 
 class Agent:
-    def __init__(self, llm, store: Store, state: State | None = None):
+    def __init__(self, llm, store: Store):
         self.llm = llm
         self.store = store
-        self.state = state or State()
+        self.state: State = store.load_state()
 
     def turn(self, message: str) -> tuple[str, list[dict]]:
+        # Conversation state lives in SQLite: load it, run the turn, save it.
+        self.state = self.store.load_state()
         trace = Trace()
         reply = self._turn(message, trace)
-        self.state.history += [{"role": "user", "content": message}, {"role": "assistant", "content": reply}]
+        new = [{"role": "user", "content": message}, {"role": "assistant", "content": reply}]
+        self.state.history += new
+        self.store.save_state(self.state, new)
         return reply, trace.events
 
     def _turn(self, message: str, trace: Trace) -> str:

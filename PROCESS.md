@@ -29,6 +29,10 @@ Cut order if behind: React polish, then React. The CLI alone meets the brief.
 - **Clarification state lives in the backend** (`pending`), so "which one?" → "2"
   works. If the reply isn't an answer, the question is dropped and the message
   is handled normally, so the bot never gets stuck.
+- **Conversation state is in SQLite, next to the todos**: one `conversation_state`
+  row (last_referenced_id, pending) plus an append-only `messages` table. It's
+  loaded and saved every turn, so nothing lives only in process memory. Single
+  conversation (id=1); per-user `conversation_id` is the production change.
 - **Duplicates are a check() rule:** a todo can't duplicate an *open* one.
   Re-adding a finished task is allowed.
 - **MockLLM is a small keyword parser, not scripted replies**, so the no-key demo
@@ -47,9 +51,9 @@ Cut order if behind: React polish, then React. The CLI alone meets the brief.
 | Live model: every chat message returned **HTTP 500** (`No module named 'mcp'`) | LiteLLM 1.106.3 imports its MCP handler whenever `tools` are passed; `mcp` only ships in the `litellm[mcp]` extra. Our LiteLLM test patched `completion()` out, so the suite stayed green | Depend on `litellm[mcp]`. Added a regression test through the real `litellm.completion` (fails without `mcp`, passes with it). Model errors now return "The model call failed… Nothing was changed." instead of a 500 |
 | **Page went white in Chrome** after the first message (fine in Cursor's browser) | Chrome 155 returns a Promise from `scrollIntoView`. The chat's scroll effect returned it, and React called it as a cleanup function → `l is not a function` | One-line fix (block-bodied effect). Reproduced and re-verified by scripting the installed Chrome with puppeteer |
 | **Duplicate todos**: "add send the quote" twice gave two identical rows, and "delete the quote" then offered two identical choices | No duplicate rule | check() blocks add/update that would duplicate an open todo (ignoring case, spacing and trailing punctuation), including after a clarification. 4 tests |
-| **"change it to…" after a server restart** failed | Todos persist in SQLite, but `last_referenced_id` lived in memory and was lost, so "it" resolved to nothing | An unresolved pronoun now asks which todo instead of failing. The root cause (conversation state not persisted) is listed as a gap; DEPLOYMENT.md moves it to a `conversations` table |
+| **"change it to…" after a server restart** failed | Todos persist in SQLite, but `last_referenced_id` lived in memory and was lost, so "it" resolved to nothing | Root cause fixed: conversation state is persisted in SQLite (`conversation_state` + `messages`), loaded at the start of each turn and saved at the end, so "it" and pending questions survive a restart. Also, an unresolved pronoun (e.g. one pointing at a deleted todo) now asks which todo instead of failing. Tests: a new Agent on the same DB resolves "that" and answers the previous Agent's question |
 
-Test suite: `make test` → 26 passed (MockLLM/stubs, no network). The live model
+Test suite: `make test` → 28 passed (MockLLM/stubs, no network). The live model
 was also run on the README transcript and the ambiguity flows: same traces as
 the mock, and it copied "the quote" verbatim rather than picking a todo.
 
@@ -61,8 +65,7 @@ validation, duplicates and no-match with no data change; a trace for every stage
 in the CLI and under each chat reply; live model and mock; one-process web demo.
 
 **Doesn't:**
-- Conversation state is in memory: one conversation for everyone, and it's lost
-  on restart.
+- One conversation (id=1) shared by everyone who opens the app.
 - Matching is a token-subset check with no stemming or typo tolerance: "buying
   milk" doesn't match "buy milk" (seen live).
 - A short target that matches exactly one todo executes without confirmation.
@@ -72,7 +75,7 @@ in the CLI and under each chat reply; live model and mock; one-process web demo.
   "add change the oil", "I finished the gym", "whats left". The live model
   handles all of these.
 
-**Next:** persist conversation state per session; light stemming plus fuzzy
+**Next:** per-user `conversation_id` (with auth); light stemming plus fuzzy
 matching that falls back to clarifying; confirm destructive actions on weak
 matches; an opt-in eval suite that runs the test scenarios against the real model.
 
@@ -114,4 +117,6 @@ matches; an opt-in eval suite that runs the test scenarios against the real mode
 7. **"change it to…" after restart.** I found it in the web UI and specified the
    fix: ask instead of fail, reuse `pending`, with a restart-like test. Claude
    implemented it and covered a case I hadn't specified: if every todo is
-   completed, it lists all of them.
+   completed, it lists all of them. I then had the root cause fixed too:
+   conversation state persisted in SQLite, with a test where a new Agent on the
+   same DB resolves "that" from the previous Agent's turn.

@@ -1,5 +1,6 @@
 from app.agent import Agent
 from app.llm import MockLLM
+from app.store import Store
 from tests.conftest import texts
 
 
@@ -28,8 +29,32 @@ def test_that_with_no_history_changes_nothing(agent, store):
     assert store.list() == []
 
 
-def test_unresolved_pronoun_after_restart_asks_instead_of_failing(store):
-    # Restart-like: the todo persisted in SQLite, but a fresh State has no last_referenced_id.
+def test_state_survives_a_new_agent_on_the_same_db(tmp_path):
+    path = str(tmp_path / "test.db")
+    Agent(MockLLM(), Store(path)).turn("add send the quote")
+
+    agent = Agent(MockLLM(), Store(path))  # restart: new process, same file
+    reply, trace = agent.turn("change that to send the revised quote")
+    assert reply == 'Changed "send the quote" to "send the revised quote".'
+    assert [e["event"] for e in trace][-2:] == ["validated", "executed"]
+    assert len(agent.state.history) == 4
+
+
+def test_pending_question_survives_a_new_agent(tmp_path):
+    path = str(tmp_path / "test.db")
+    first = Agent(MockLLM(), Store(path))
+    first.turn("add call mom")
+    first.turn("add call dentist")
+    first.turn("complete call")
+
+    store = Store(path)
+    _, trace = Agent(MockLLM(), store).turn("2")
+    assert [e["event"] for e in trace] == ["validated", "executed"]
+    assert [t["completed"] for t in store.list()] == [False, True]
+
+
+def test_unresolved_pronoun_asks_instead_of_failing(store):
+    # Todos exist but there is no conversation state (no earlier turn mentioned one).
     store.add("send the quote")
     agent = Agent(MockLLM(), store)
 
