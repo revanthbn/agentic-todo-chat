@@ -29,20 +29,24 @@ class Agent:
                 return self.execute(pending["skill"], pending["args"], choice, trace)
             # Not an answer to the question: drop it and handle the message normally.
 
-        # 1. route(): the model sees the catalog only
-        catalog = load_catalog()
-        names = [s["name"] for s in catalog]
-        trace.emit("catalog_shown", skills=names)
-        name = self.llm.route(catalog, message, self.state.history)
-        if name not in names:
-            trace.emit("failed", reason=f"no skill chosen ({name!r})")
-            return f"Sorry, I didn't understand that. {HELP}"
+        try:
+            # 1. route(): the model sees the catalog only
+            catalog = load_catalog()
+            names = [s["name"] for s in catalog]
+            trace.emit("catalog_shown", skills=names)
+            name = self.llm.route(catalog, message, self.state.history)
+            if name not in names:
+                trace.emit("failed", reason=f"no skill chosen ({name!r})")
+                return f"Sorry, I didn't understand that. {HELP}"
 
-        # 2. act(): load that one skill file, model proposes a tool call
-        skill = load_skill(name)
-        trace.emit("skill_loaded", skill=name, tool=skill["tool"]["name"])
-        args = self.llm.act(skill, message)
-        trace.emit("proposed", tool=skill["tool"]["name"], args=args)
+            # 2. act(): load that one skill file, model proposes a tool call
+            skill = load_skill(name)
+            trace.emit("skill_loaded", skill=name, tool=skill["tool"]["name"])
+            args = self.llm.act(skill, message)
+            trace.emit("proposed", tool=skill["tool"]["name"], args=args)
+        except Exception as e:  # model/network errors: report, change nothing
+            trace.emit("failed", reason=f"model error: {type(e).__name__}: {str(e)[:200]}")
+            return f"The model call failed ({type(e).__name__}). Nothing was changed."
 
         # 3. check(): code decides
         return self.check(skill, args, trace)

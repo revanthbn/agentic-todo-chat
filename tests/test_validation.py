@@ -46,3 +46,18 @@ def test_completing_a_done_todo_fails(store):
     reply, trace = run(store, "complete", {"target": "send the quote"})
     assert "already done" in reply
     assert trace[-1]["event"] == "failed"
+
+
+class BrokenLLM:
+    mode = "stub"
+
+    def route(self, catalog, message, history):
+        raise ConnectionError("provider unreachable")
+
+
+def test_model_error_is_reported_and_changes_nothing(store):
+    store.add("send the quote")
+    reply, trace = Agent(BrokenLLM(), store).turn("delete the quote")
+    assert reply == "The model call failed (ConnectionError). Nothing was changed."
+    assert trace[-1]["event"] == "failed"
+    assert texts(store) == ["send the quote"]

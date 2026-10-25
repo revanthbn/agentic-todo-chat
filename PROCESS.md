@@ -64,9 +64,12 @@ exist even if React overruns.
 | Third screenshot | matches `docs/design/ref_image.png` | – |
 | `tests/test_llm_client.py`: LiteLLM request shape with `litellm.completion` patched | passed. route() gets the catalog only, with no tool schemas; act() gets one tool and `tool_choice` forced | – |
 | Probing MockLLM on harder input | **found gaps** (below), including one wrong write | listed, not fixed (15-minute cap) |
-| Live model run | **not done yet**: no `ANTHROPIC_API_KEY` in this shell | – |
+| Live model, first run (me, `make demo` in the browser) | **failed**: every `/chat` returned 500, `ModuleNotFoundError: No module named 'mcp'`. LiteLLM 1.106.3 imports its MCP handler whenever `tools` are passed, and `mcp` only ships in the `litellm[mcp]` extra. `test_llm_client.py` had patched `litellm.completion` out, so it never touched that code | depend on `litellm[mcp]`; added a regression test that goes through the real `litellm.completion` (`mock_response`, no network). Confirmed it fails with `mcp` uninstalled and passes with it |
+| Same run: a model error became an HTTP 500 | **bug**: broke the "failures produce a plain message" rule | agent wraps route()/act(): `failed` trace event + "The model call failed (…). Nothing was changed." Test added |
+| Live model, README transcript + ambiguity + mock-gap inputs (`make cli`, claude-haiku-5-5) | **passed**: same traces as MockLLM for the brief example and both ambiguity scenarios. The model copied "the quote" / "call" verbatim instead of picking a todo, so code still decided. It parsed "change go to gym to go to pool" correctly (the mock didn't) | – |
+| Same run: "I finished buying milk" | **miss**: the model proposed target "buying milk", which doesn't token-match "buy milk". Nothing changed, plain message | not fixed; listed under gaps |
 
-Final: `make test` → 18 passed.
+Final: `make test` → 20 passed.
 
 ### MockLLM: inputs it can't parse
 - `change go to gym to go to pool`: it splits at the first " to ", so the
@@ -91,7 +94,7 @@ stage, shown in the CLI and in a collapsible row under each chat reply; React UI
 (read-only list + chat) served by FastAPI from one process.
 
 **Doesn't / not verified:**
-- Live model path is written and request-shape tested, but not run against the API.
+- Matching has no stemming: "buying milk" doesn't match "buy milk" (seen live).
 - One conversation for the whole server (single user, in memory, lost on restart).
 - The chat pane was checked through the API and a static screenshot, not by
   clicking through in a browser.
@@ -100,8 +103,8 @@ stage, shown in the CLI and in a collapsible row under each chat reply; React UI
   confirmation.
 - No undo.
 
-**Next:** run the live model on the README transcript and the ambiguity tests
-(as an opt-in eval suite); persist conversation state per session; fuzzy
+**Next:** turn the live run into an opt-in eval suite (same scenarios as the
+tests, against the real model); light stemming in `tokens()`; persist conversation state per session; fuzzy
 matching with a confidence threshold that falls back to clarifying; confirm
 destructive actions on weak matches; undo of the last action.
 
@@ -145,3 +148,14 @@ destructive actions on weak matches; undo of the last action.
    inputs it wasn't written for, before writing up what works.
    It found a wrong write ("change go to gym to go to pool"). That's logged
    above instead of patched, per the 15-minute cap.
+
+6. **First live run (me, in the browser).** I added my key to `.env`, ran
+   `make demo` and every chat message returned a 500: `No module named 'mcp'`.
+   Claude traced it to LiteLLM importing its MCP handler whenever `tools` are
+   passed, fixed it with the `litellm[mcp]` extra, and pointed out that its own
+   request-shape test had mocked `litellm.completion` away, which is why the
+   suite was green. It added a regression test through the real
+   `litellm.completion` (confirmed red without `mcp`, green with it), and caught
+   that the 500 also broke the "failures give a plain message" rule. Then it ran
+   the README transcript live: everything passed except one new miss
+   ("buying milk" vs "buy milk").

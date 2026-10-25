@@ -63,6 +63,7 @@ class LiteLLMClient:
     def _call(self, system: str, messages: list[dict], tool: dict) -> dict:
         import litellm
 
+        litellm.suppress_debug_info = True
         resp = litellm.completion(
             model=self.model,
             messages=[{"role": "system", "content": system}, *messages],

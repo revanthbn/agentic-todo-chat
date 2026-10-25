@@ -43,3 +43,13 @@ def test_act_sees_one_skill_and_no_todos(monkeypatch):
     assert [t["function"]["name"] for t in req["tools"]] == ["update_todo"]
     assert req["tool_choice"]["function"]["name"] == "update_todo"
     assert [m["role"] for m in req["messages"]] == ["system", "user"]
+
+
+def test_real_litellm_tools_path_imports(monkeypatch):
+    """Regression: litellm's tools path imports `mcp` (needs litellm[mcp]).
+
+    Goes through the real litellm.completion, no network (mock_response)."""
+    tool = {"type": "function", "function": {"name": "choose_skill", "parameters": {"type": "object"}}}
+    resp = litellm.completion(model="anthropic/claude-haiku-5-5", tools=[tool],
+                              messages=[{"role": "user", "content": "hi"}], mock_response="ok")
+    assert resp.choices[0].message.content == "ok"
